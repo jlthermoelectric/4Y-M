@@ -1,0 +1,2423 @@
+import Mathlib
+
+/-!
+# Composition of bounds across scales, continued: a local right inverse on the infinite lattice
+# and composition loss on Pauli transfer matrices
+
+A Lean 4 / Mathlib development about proof methods for multiscale bounds. It continues the series
+from Parts 1–15, and its parts are numbered 16–17. It does not import Parts 1–15: where a part uses
+one of their definitions or statements, it re-defines or re-proves it. Each part was written as a
+separate module and is wrapped here in its own `section`, so that its `open` commands stay local;
+the namespaces are distinct, so no names clash. Each part begins with its own module docstring,
+which states its main results, its scope and what it does not formalise.
+
+| part | section | namespace | content |
+|---|---|---|---|
+| 16 | `Part16_JZ4` | `LemmaJZ4` | a local linear right inverse on the infinite lattice: local operators; passage of a right inverse with a uniform bound from approximating maps to the limit; kernels with bounded column sums and the Schur test; recovery through a lift; an explicit right inverse of the block-centre filter on `ℤ` and `ℤ⁴`; examples |
+| 17 | `Part17_PauliComposition` | `PauliComposition` | composition loss on Pauli transfer matrices: the minimal admissible weight lemma at one step; the exact worst case, the one-shot bound and the stepwise chain, and their ordering; worked qubit examples (a rotation echo, a Clifford echo, a Bell pair with Pauli noise); applications of the general results |
+
+## Main results
+
+* **Part 16 (a local right inverse).** Local operators, which read finitely many inputs per
+  output, are linear, depend only on the inputs they read, compose to local operators and commute
+  with pointwise limits (`LocalOp.apply_add`, `LocalOp.apply_smul`, `LocalOp.apply_congr`,
+  `LocalOp.comp_apply`, `LocalOp.tendsto_apply`). If linear maps `Jn n` from finitely supported
+  coarse fields to fine fields converge pointwise to `J`, are eventually right inverses of a local
+  operator `A`, and have uniform bounds on every finite window of their plaquette energy and of
+  their column `ℓ¹` sums, then `J` is linear, `A (J y) = y`, the plaquette energy of `J y` is at
+  most `C² qK y`, and `∑' i, |J y i| ≤ C1 ∑_j |y j|` (`lemmaJ_passage`). A kernel with bounded
+  column sums maps finitely supported vectors to `ℓ¹`, and with a row bound as well to `ℓ²` (the
+  Schur test) (`kernel_l1`, `kernel_l2`); a local operator composed with such a kernel has column
+  sums bounded by the product of the two bounds (`comp_column_bound`). If `M (c j) = M (e j)` with
+  `‖c j‖ ≤ C ‖M (e j)‖` and `e j → e∞` with `M e∞ = 0`, then `e j − c j` lies in the kernel of `M`
+  and converges to `e∞` (`recovery_of_lift`). For the block-centre filter
+  `(τ f) j = ¾ f j + ⅛ (f (j − 1) + f (j + 1))` on `ℤ`, the kernel `g j = √2 ρ^{|j|}` with
+  `ρ = 2√2 − 3` satisfies `τ g = δ₀` and `∑ |g| = 2` (`tau_gk`, `hasSum_abs_gk`); for the
+  tensor-product filter `T` on `ℤ⁴`, the kernel `G z = ∏_ν g (z ν)` satisfies `T G = δ₀`, its
+  finite partial sums of `|G|` are at most `16`, and for every finitely supported `y`,
+  `T (G ∗ y) = y`, `∑' |G ∗ y| ≤ 16 ∑ |y|` and `∑' (G ∗ y)² ≤ 256 ∑ y²` (`Tf_Gk`,
+  `sum_abs_Gk_le`, `Tf_Gconv`, `Gconv_l1`, `Gconv_l2`).
+* **Part 17 (composition loss on Pauli transfer matrices).** For a chain of real matrices with
+  defects in a box, the change of an expectation is linear in the defects and its exact worst case
+  is attained (`shift_eq`, `isGreatest_abs_shift`). The minimal admissible weight lemma, restated
+  and proved (`admissible_iff`), identifies the one-shot weights as the least admissible
+  site-additive weights for the composite map (`oneShot_isLeast`); the stepwise chain is
+  admissible at every step and is the least such chain (`stepW_admissible`, `stepW_le`,
+  `stepBound_le_chain`). Always exact worst case `≤` one-shot bound `≤` stepwise bound
+  (`exactBound_le_oneShotBound`, `oneShotBound_le_stepBound`), and the three coincide when every
+  column of every matrix has at most one nonzero entry (`no_loss_of_singleEntryColumns`). On the
+  worked examples, with budget `1/1000` per step: in a one-qubit rotation echo (six pairs
+  `R_Y(+θ), R_Y(−θ)` with `cos θ = 3/5`, observable `Z`) the exact worst case and the one-shot
+  bound are `9/625` and the stepwise chain is `849821661/6103515625`, a loss ratio above `9`
+  (`echo_summary`, `echo_ratio_gt_nine`); in the same circuit at `R_Y(±π/2)` (a Clifford echo) and
+  in a two-qubit Bell circuit with Pauli noise, all three bounds coincide (`cliffordEcho_bounds`,
+  `bell_summary`).
+
+Part 16 ends with closed theorems that apply its results to concrete data; their docstrings say
+which instances are degenerate. In Part 17 the worked examples are the main content, and its last
+section applies every general result with hypotheses or parameters not used above to the data of
+the examples, with all of its hypotheses discharged.
+
+## Scope
+
+These are results about proof methods: an abstract statement used by one proof architecture, at
+Gaussian order (Part 16: a linear lift with a bound on a quadratic energy), and a worked example of
+a proof-method phenomenon on qubit channels, with one two-qubit Clifford circuit as a no-loss
+contrast (Part 17: chaining one site-additive estimate per step can lose, where one estimate for
+the composite map does not). Lattice inputs enter only as hypotheses: in Part 16 the approximating
+maps, their convergence, the right-inverse identity on the approximating lattices and the uniform
+energy and column bounds are hypotheses, and the block averages, the plaquette map and the coarse
+energy are arbitrary; only the block-centre filter is a concrete lattice object. In Part 17 the
+entries of the transfer matrices are entered as data from the standard formulas. Nothing here is
+about the Yang–Mills measure. The estimates (D) (the cube estimate `D(n, α)`) and (E) (the
+existence of a nontrivial continuum limit satisfying the Osterwalder–Schrader axioms with a gap in
+physical units) remain open, and so does the mass gap; nothing here addresses them.
+
+## Conventions
+
+* Lemma W, the minimal admissible weight lemma, names a mathematical statement; Part 17 states and
+  proves it where it is used. Nothing from Parts 1–15 is imported.
+* The file imports Mathlib only. It contains no `sorry`, no `admit`, no `axiom` declarations and
+  no `native_decide`.
+-/
+
+/-! # Part 16: a local linear right inverse on the infinite lattice -/
+section Part16_JZ4
+
+/-!
+# Part 16: a local linear right inverse on the infinite lattice
+
+A Lean 4 / Mathlib development about proof methods. It continues the series of Parts 1–15 and does not
+import them: where a statement from an earlier part is needed it is re-stated or re-proved here. The file
+imports Mathlib only, and its namespace is `LemmaJZ4`.
+
+## Setting
+
+Fields are real-valued functions on index types: `ι` (fine links), `κ` (coarse links), `π` (fine
+plaquettes). A *local operator* `A : LocalOp ι κ` assigns to every output index `k` a finite set
+`A.supp k` of input indices and coefficients `A.coef k i`, and acts by
+`(A f) k = ∑_{i ∈ A.supp k} A.coef k i * f i`. Finitely supported coarse fields are `κ →₀ ℝ`.
+
+## Main results
+
+* **Locality** (§1). Local operators are additive and homogeneous (`LocalOp.apply_add`,
+  `LocalOp.apply_smul`), `(A f) k` depends only on `f` on `A.supp k` (`LocalOp.apply_congr`), a
+  composite of local operators is local (`LocalOp.comp_apply`), and local operators commute with
+  pointwise limits (`LocalOp.tendsto_apply`).
+* **Passage of a right inverse with a uniform bound** (§2). Let `Jn n` be linear maps from finitely
+  supported coarse fields to fine fields (the approximating maps, transported to the infinite lattice),
+  converging pointwise to `J`. If, for every `y` and every coarse index `k`, eventually
+  `(A (Jn n y)) k = y k`; if every finite window `F` of plaquettes eventually has
+  `∑_{p ∈ F} ((D (Jn n y)) p)² ≤ C² qK y`; and if every finite window `F` of fine indices eventually has
+  `∑_{i ∈ F} |Jn n (δ_j) i| ≤ C1`; then `J` is linear, `A (J y) = y`, `p ↦ ((D (J y)) p)²` is summable
+  with sum at most `C² qK y`, and `J y` is absolutely summable with `∑' i, |J y i| ≤ C1 ∑_j |y j|`, hence
+  square-summable (`lemmaJ_passage`). The pieces are `apply_eq_of_tendsto`, `energy_le_of_tendsto`,
+  `l1_le_of_tendsto`, `isLinearMap_of_tendsto`, `summable_sq_of_summable_abs`.
+* **Kernels with bounded columns** (§3). If `∑_{i ∈ F} |K i j| ≤ C1` for every `j` and every finite
+  `F`, then `i ↦ ∑_{j ∈ S} K i j * c j` is absolutely summable with sum at most `C1 ∑_{j ∈ S} |c j|`
+  (`kernel_l1`); with a row bound `R` as well, its squares sum to at most `R C1 ∑_{j ∈ S} (c j)²`
+  (`kernel_l2`, the Schur test). A local operator with column sums at most `CA` composed with such a
+  kernel has column sums at most `CA C1` (`comp_column_bound`).
+* **Recovery through a lift with a bound in terms of the image** (§4). Let `M` be a continuous linear map,
+  `e j → e∞` with `M e∞ = 0`, and let `c j` satisfy `M (c j) = M (e j)` and `‖c j‖ ≤ C ‖M (e j)‖`. Then
+  `e j − c j ∈ ker M` and `e j − c j → e∞` (`recovery_of_lift`).
+* **A right inverse of the block-centre filter** (§5). On `ℤ`, the filter
+  `(τ f) j = ¾ f j + ⅛ (f (j − 1) + f (j + 1))` has the right-inverse kernel `g j = √2 ρ^{|j|}` with
+  `ρ = 2√2 − 3`: `τ g = δ₀` (`tau_gk`), `|g j| = √2 s^{|j|}` with `s = 3 − 2√2` (`abs_gk`), and
+  `∑_j |g j| = 2` (`hasSum_abs_gk`). On `ℤ⁴`, the tensor-product filter `T = τ₁τ₂τ₃τ₄` has the
+  right-inverse kernel `G z = ∏_ν g (z ν)`: `T G = δ₀` (`Tf_Gk`), `|G z| = 4 s^{|z|₁}` (`abs_Gk`), every finite
+  partial sum of `|G|` is at most `16` (`sum_abs_Gk_le`), and for every finitely supported `y`,
+  `T (G ∗ y) = y` (`Tf_Gconv`), `∑' |G ∗ y| ≤ 16 ∑ |y|` and `∑' (G ∗ y)² ≤ 256 ∑ y²` (`Gconv_l1`,
+  `Gconv_l2`).
+
+§6 contains closed theorems that apply the results to concrete data (namespace `Example`); their
+docstrings say which instances are degenerate.
+
+## Scope
+
+An abstract statement used by one proof architecture; lattice inputs enter only as hypotheses; nothing
+about the Yang–Mills measure; (D), (E) and the mass gap remain open. In particular, the approximating maps,
+their convergence, the right-inverse identity on the approximating lattices, the uniform energy bound and
+the uniform column bounds of §2 are hypotheses; the block averages, the plaquette map and the coarse
+energy `qK` are arbitrary local operators and functions. Only the filter of §5 is a concrete lattice
+object.
+
+## Not formalised here
+
+The construction of the lift itself (the Whitney extension, the crossing-link embedding and their
+identities), the torus versions and their periodisation, the bound `‖T⁻¹‖ ≤ 16` on all of `ℓ²` (only
+finitely supported inputs are treated), the commutation of `T⁻¹` with the coarse plaquette map, and the
+use of the lift in the infinite-volume passage.
+-/
+
+/-! # Part 16: a local linear right inverse on the infinite lattice -/
+section Part16_LemmaJZ4
+
+namespace LemmaJZ4
+
+open Filter Topology Finset
+
+noncomputable section
+
+/-! ## 1. Local operators -/
+
+/-- A local linear operator from real fields on `ι` to real fields on `κ`: the output index `k` reads the
+finite set `supp k` of input indices, with coefficients `coef k i`. -/
+structure LocalOp (ι κ : Type*) where
+  /-- the input indices read by the output index `k` -/
+  supp : κ → Finset ι
+  /-- the coefficients -/
+  coef : κ → ι → ℝ
+
+namespace LocalOp
+
+variable {ι κ μ : Type*}
+
+/-- The action of a local operator: `(A f) k = ∑_{i ∈ A.supp k} A.coef k i * f i`. -/
+def apply (A : LocalOp ι κ) (f : ι → ℝ) : κ → ℝ :=
+  fun k => ∑ i ∈ A.supp k, A.coef k i * f i
+
+/-- A local operator is additive: `A (f + g) = A f + A g`. -/
+theorem apply_add (A : LocalOp ι κ) (f g : ι → ℝ) : A.apply (f + g) = A.apply f + A.apply g := by
+  funext k
+  simp [apply, mul_add, Finset.sum_add_distrib]
+
+/-- A local operator is homogeneous: `A (c • f) = c • A f`. -/
+theorem apply_smul (A : LocalOp ι κ) (c : ℝ) (f : ι → ℝ) : A.apply (c • f) = c • A.apply f := by
+  funext k
+  simp [apply, Finset.mul_sum, mul_left_comm]
+
+/-- **Locality.** `(A f) k` depends only on the values of `f` on `A.supp k`. -/
+theorem apply_congr (A : LocalOp ι κ) {f g : ι → ℝ} (k : κ) (h : ∀ i ∈ A.supp k, f i = g i) :
+    A.apply f k = A.apply g k :=
+  Finset.sum_congr rfl fun i hi => by rw [h i hi]
+
+/-- The composite of local operators `B ∘ A`: the output index `m` reads `⋃_{k ∈ B.supp m} A.supp k`, with
+coefficients `∑_{k ∈ B.supp m} [i ∈ A.supp k] B.coef m k * A.coef k i`. -/
+def comp [DecidableEq ι] (B : LocalOp κ μ) (A : LocalOp ι κ) : LocalOp ι μ where
+  supp m := (B.supp m).biUnion A.supp
+  coef m i := ∑ k ∈ B.supp m, if i ∈ A.supp k then B.coef m k * A.coef k i else 0
+
+/-- **A composite of local operators is local**: `(B.comp A) f = B (A f)`. -/
+theorem comp_apply [DecidableEq ι] (B : LocalOp κ μ) (A : LocalOp ι κ) (f : ι → ℝ) :
+    (B.comp A).apply f = B.apply (A.apply f) := by
+  funext m
+  simp only [apply, comp, Finset.sum_mul, Finset.mul_sum]
+  rw [Finset.sum_comm]
+  refine Finset.sum_congr rfl fun k hk => ?_
+  have hsub : A.supp k ⊆ (B.supp m).biUnion A.supp := Finset.subset_biUnion_of_mem A.supp hk
+  rw [← Finset.sum_subset hsub (fun i _ hi => by simp [hi])]
+  refine Finset.sum_congr rfl fun i hi => ?_
+  simp [hi, mul_assoc]
+
+/-- **Pointwise convergence passes through a local operator.** If `g n i → gl i` for every `i`, then
+`(A (g n)) k → (A gl) k` for every `k`. -/
+theorem tendsto_apply (A : LocalOp ι κ) {g : ℕ → ι → ℝ} {gl : ι → ℝ}
+    (hg : ∀ i, Tendsto (fun n => g n i) atTop (𝓝 (gl i))) (k : κ) :
+    Tendsto (fun n => A.apply (g n) k) atTop (𝓝 (A.apply gl k)) :=
+  tendsto_finsetSum _ fun i _ => (hg i).const_mul _
+
+end LocalOp
+
+/-! ## 2. Passage of a right inverse with a uniform bound -/
+
+section Passage
+
+variable {ι κ π : Type*}
+
+/-- **A right-inverse identity passes to pointwise limits.** If `g n → gl` pointwise and, for every output
+index `k`, eventually `(A (g n)) k = y k`, then `A gl = y`. -/
+theorem apply_eq_of_tendsto (A : LocalOp ι κ) {g : ℕ → ι → ℝ} {gl : ι → ℝ}
+    (hg : ∀ i, Tendsto (fun n => g n i) atTop (𝓝 (gl i))) (y : κ → ℝ)
+    (hA : ∀ k, ∀ᶠ n in atTop, A.apply (g n) k = y k) : A.apply gl = y := by
+  funext k
+  exact tendsto_nhds_unique (A.tendsto_apply hg k)
+    (tendsto_const_nhds.congr' ((hA k).mono fun n h => h.symm))
+
+/-- **Fatou bound for a local energy.** If `g n → gl` pointwise and every finite window `F` eventually has
+`∑_{p ∈ F} ((D (g n)) p)² ≤ B`, then `p ↦ ((D gl) p)²` is summable and `∑' p, ((D gl) p)² ≤ B`. -/
+theorem energy_le_of_tendsto (D : LocalOp ι π) {g : ℕ → ι → ℝ} {gl : ι → ℝ}
+    (hg : ∀ i, Tendsto (fun n => g n i) atTop (𝓝 (gl i))) (B : ℝ)
+    (hB : ∀ F : Finset π, ∀ᶠ n in atTop, ∑ p ∈ F, D.apply (g n) p ^ 2 ≤ B) :
+    Summable (fun p => D.apply gl p ^ 2) ∧ ∑' p, D.apply gl p ^ 2 ≤ B := by
+  have hF : ∀ F : Finset π, ∑ p ∈ F, D.apply gl p ^ 2 ≤ B := fun F =>
+    le_of_tendsto (tendsto_finsetSum F fun p _ => (D.tendsto_apply hg p).pow 2) (hB F)
+  have hnn : 0 ≤ fun p => D.apply gl p ^ 2 := fun p => sq_nonneg _
+  have hs : Summable (fun p => D.apply gl p ^ 2) := summable_of_sum_le hnn hF
+  exact ⟨hs, hs.tsum_le_of_sum_le hF⟩
+
+/-- **Fatou bound for `ℓ¹` windows.** If `g n → gl` pointwise and every finite window `F` eventually has
+`∑_{i ∈ F} |g n i| ≤ B`, then every finite window has `∑_{i ∈ F} |gl i| ≤ B`, `i ↦ |gl i|` is summable,
+and `∑' i, |gl i| ≤ B`. -/
+theorem l1_le_of_tendsto {g : ℕ → ι → ℝ} {gl : ι → ℝ}
+    (hg : ∀ i, Tendsto (fun n => g n i) atTop (𝓝 (gl i))) (B : ℝ)
+    (hB : ∀ F : Finset ι, ∀ᶠ n in atTop, ∑ i ∈ F, |g n i| ≤ B) :
+    (∀ F : Finset ι, ∑ i ∈ F, |gl i| ≤ B) ∧ Summable (fun i => |gl i|) ∧ ∑' i, |gl i| ≤ B := by
+  have hF : ∀ F : Finset ι, ∑ i ∈ F, |gl i| ≤ B := fun F =>
+    le_of_tendsto (tendsto_finsetSum F fun i _ => (hg i).abs) (hB F)
+  have hnn : 0 ≤ fun i => |gl i| := fun i => abs_nonneg _
+  have hs : Summable (fun i => |gl i|) := summable_of_sum_le hnn hF
+  exact ⟨hF, hs, hs.tsum_le_of_sum_le hF⟩
+
+/-- **Linearity passes to pointwise limits.** If linear maps `Jn n : V → (ι → ℝ)` converge pointwise to
+`J`, i.e. `Jn n y i → J y i` for all `y` and `i`, then `J` is linear. -/
+theorem isLinearMap_of_tendsto {V : Type*} [AddCommGroup V] [Module ℝ V]
+    (Jn : ℕ → V →ₗ[ℝ] (ι → ℝ)) (J : V → ι → ℝ)
+    (hJ : ∀ y i, Tendsto (fun n => Jn n y i) atTop (𝓝 (J y i))) : IsLinearMap ℝ J := by
+  constructor
+  · intro y z
+    funext i
+    have h2 := hJ (y + z) i
+    simp only [map_add, Pi.add_apply] at h2
+    exact tendsto_nhds_unique h2 ((hJ y i).add (hJ z i))
+  · intro c y
+    funext i
+    have h2 := hJ (c • y) i
+    simp only [map_smul, Pi.smul_apply, smul_eq_mul] at h2
+    exact tendsto_nhds_unique h2 ((hJ y i).const_mul c)
+
+/-- **`ℓ¹` implies `ℓ²`.** If `i ↦ |f i|` is summable, then `i ↦ (f i)²` is summable and
+`∑' i, (f i)² ≤ (∑' i, |f i|)²`. -/
+theorem summable_sq_of_summable_abs {f : ι → ℝ} (hf : Summable (fun i => |f i|)) :
+    Summable (fun i => f i ^ 2) ∧ ∑' i, f i ^ 2 ≤ (∑' i, |f i|) ^ 2 := by
+  set S := ∑' i, |f i| with hS
+  have hle : ∀ i, |f i| ≤ S := fun i => hf.le_tsum i (fun j _ => abs_nonneg _)
+  have hb : ∀ i, f i ^ 2 ≤ S * |f i| := fun i => by
+    rw [← sq_abs, sq]
+    exact mul_le_mul_of_nonneg_right (hle i) (abs_nonneg _)
+  have hs : Summable (fun i => S * |f i|) := hf.mul_left S
+  have hs2 : Summable (fun i => f i ^ 2) := Summable.of_nonneg_of_le (fun i => sq_nonneg _) hb hs
+  refine ⟨hs2, ?_⟩
+  calc ∑' i, f i ^ 2 ≤ ∑' i, S * |f i| := hs2.tsum_le_tsum hb hs
+    _ = S ^ 2 := by rw [hf.tsum_mul_left S, ← hS, sq]
+
+end Passage
+
+/-! ## 3. Kernels with bounded columns -/
+
+section Kernel
+
+variable {ι κ μ : Type*}
+
+/-- **A kernel with bounded column `ℓ¹` norms maps finitely supported vectors to `ℓ¹`.** Let
+`K : ι → κ → ℝ` satisfy `∑_{i ∈ F} |K i j| ≤ C1` for every `j` and every finite set `F`. Then for every
+finite set `S` and coefficients `c`, the vector `i ↦ ∑_{j ∈ S} K i j * c j` is absolutely summable with
+`∑' i, |∑_{j ∈ S} K i j * c j| ≤ C1 ∑_{j ∈ S} |c j|`. -/
+theorem kernel_l1 (K : ι → κ → ℝ) (C1 : ℝ) (hK : ∀ j (F : Finset ι), ∑ i ∈ F, |K i j| ≤ C1)
+    (S : Finset κ) (c : κ → ℝ) :
+    Summable (fun i => |∑ j ∈ S, K i j * c j|) ∧
+      ∑' i, |∑ j ∈ S, K i j * c j| ≤ C1 * ∑ j ∈ S, |c j| := by
+  have hF : ∀ F : Finset ι, ∑ i ∈ F, |∑ j ∈ S, K i j * c j| ≤ C1 * ∑ j ∈ S, |c j| := by
+    intro F
+    calc ∑ i ∈ F, |∑ j ∈ S, K i j * c j| ≤ ∑ i ∈ F, ∑ j ∈ S, |K i j| * |c j| := by
+          refine Finset.sum_le_sum fun i _ => ?_
+          refine (Finset.abs_sum_le_sum_abs _ _).trans (le_of_eq ?_)
+          simp [abs_mul]
+      _ = ∑ j ∈ S, (∑ i ∈ F, |K i j|) * |c j| := by
+          rw [Finset.sum_comm]
+          simp [Finset.sum_mul]
+      _ ≤ ∑ j ∈ S, C1 * |c j| :=
+          Finset.sum_le_sum fun j _ => mul_le_mul_of_nonneg_right (hK j F) (abs_nonneg _)
+      _ = C1 * ∑ j ∈ S, |c j| := by rw [Finset.mul_sum]
+  have hnn : 0 ≤ fun i => |∑ j ∈ S, K i j * c j| := fun i => abs_nonneg _
+  have hs := summable_of_sum_le hnn hF
+  exact ⟨hs, hs.tsum_le_of_sum_le hF⟩
+
+/-- Weighted Cauchy–Schwarz: for `a ≥ 0`, `(∑ a b)² ≤ (∑ a) (∑ a b²)`. -/
+theorem sq_sum_le_weighted (S : Finset κ) (a b : κ → ℝ) (ha : ∀ j, 0 ≤ a j) :
+    (∑ j ∈ S, a j * b j) ^ 2 ≤ (∑ j ∈ S, a j) * ∑ j ∈ S, a j * b j ^ 2 := by
+  have h := Finset.sum_mul_sq_le_sq_mul_sq S (fun j => Real.sqrt (a j)) (fun j => Real.sqrt (a j) * b j)
+  have e1 : ∀ j, Real.sqrt (a j) * (Real.sqrt (a j) * b j) = a j * b j := fun j => by
+    rw [← mul_assoc, Real.mul_self_sqrt (ha j)]
+  have e2 : ∀ j, Real.sqrt (a j) ^ 2 = a j := fun j => Real.sq_sqrt (ha j)
+  have e3 : ∀ j, (Real.sqrt (a j) * b j) ^ 2 = a j * b j ^ 2 := fun j => by
+    rw [mul_pow, Real.sq_sqrt (ha j)]
+  simpa only [e1, e2, e3] using h
+
+/-- **Schur test on finite windows.** Let `S` be a finite set of coarse indices, and let `K` have row sums
+`∑_{j ∈ S} |K i j| ≤ R` for every `i` (with `R ≥ 0`) and column sums `∑_{i ∈ F} |K i j| ≤ C1` for every `j`
+and every finite set `F`. Then for coefficients `c`, the vector `i ↦ ∑_{j ∈ S} K i j * c j` is
+square-summable with `∑' i, (∑_{j ∈ S} K i j * c j)² ≤ R C1 ∑_{j ∈ S} (c j)²`. -/
+theorem kernel_l2 (K : ι → κ → ℝ) (R C1 : ℝ) (hR0 : 0 ≤ R) (S : Finset κ) (c : κ → ℝ)
+    (hR : ∀ i, ∑ j ∈ S, |K i j| ≤ R) (hK : ∀ j (F : Finset ι), ∑ i ∈ F, |K i j| ≤ C1) :
+    Summable (fun i => (∑ j ∈ S, K i j * c j) ^ 2) ∧
+      ∑' i, (∑ j ∈ S, K i j * c j) ^ 2 ≤ R * C1 * ∑ j ∈ S, c j ^ 2 := by
+  have hpt : ∀ i, (∑ j ∈ S, K i j * c j) ^ 2 ≤ R * ∑ j ∈ S, |K i j| * c j ^ 2 := by
+    intro i
+    have h1 : |∑ j ∈ S, K i j * c j| ≤ ∑ j ∈ S, |K i j| * |c j| := by
+      refine (Finset.abs_sum_le_sum_abs _ _).trans (le_of_eq ?_)
+      simp [abs_mul]
+    have h2 := sq_sum_le_weighted S (fun j => |K i j|) (fun j => |c j|) (fun j => abs_nonneg _)
+    have h3 : 0 ≤ ∑ j ∈ S, |K i j| * |c j| ^ 2 :=
+      Finset.sum_nonneg fun j _ => mul_nonneg (abs_nonneg _) (sq_nonneg _)
+    calc (∑ j ∈ S, K i j * c j) ^ 2 = |∑ j ∈ S, K i j * c j| ^ 2 := (sq_abs _).symm
+      _ ≤ (∑ j ∈ S, |K i j| * |c j|) ^ 2 := pow_le_pow_left₀ (abs_nonneg _) h1 2
+      _ ≤ (∑ j ∈ S, |K i j|) * ∑ j ∈ S, |K i j| * |c j| ^ 2 := h2
+      _ ≤ R * ∑ j ∈ S, |K i j| * |c j| ^ 2 := mul_le_mul_of_nonneg_right (hR i) h3
+      _ = R * ∑ j ∈ S, |K i j| * c j ^ 2 := by simp [sq_abs]
+  have hF : ∀ F : Finset ι, ∑ i ∈ F, (∑ j ∈ S, K i j * c j) ^ 2 ≤ R * C1 * ∑ j ∈ S, c j ^ 2 := by
+    intro F
+    calc ∑ i ∈ F, (∑ j ∈ S, K i j * c j) ^ 2 ≤ ∑ i ∈ F, R * ∑ j ∈ S, |K i j| * c j ^ 2 :=
+          Finset.sum_le_sum fun i _ => hpt i
+      _ = R * ∑ j ∈ S, (∑ i ∈ F, |K i j|) * c j ^ 2 := by
+          rw [← Finset.mul_sum, Finset.sum_comm]
+          simp [Finset.sum_mul]
+      _ ≤ R * ∑ j ∈ S, C1 * c j ^ 2 :=
+          mul_le_mul_of_nonneg_left
+            (Finset.sum_le_sum fun j _ => mul_le_mul_of_nonneg_right (hK j F) (sq_nonneg _)) hR0
+      _ = R * C1 * ∑ j ∈ S, c j ^ 2 := by rw [← Finset.mul_sum, mul_assoc]
+  have hnn : 0 ≤ fun i => (∑ j ∈ S, K i j * c j) ^ 2 := fun i => sq_nonneg _
+  have hs := summable_of_sum_le hnn hF
+  exact ⟨hs, hs.tsum_le_of_sum_le hF⟩
+
+/-- **Column sums of a local operator composed with a kernel.** Let `A : LocalOp μ ι` have column sums
+`∑_{i ∈ F, m ∈ A.supp i} |A.coef i m| ≤ CA` (with `CA ≥ 0`) for every `m` and every finite `F`, and let
+`K : μ → κ → ℝ` have column sums `∑_{m ∈ F} |K m j| ≤ C1`. Then the composite kernel
+`(i, j) ↦ (A (K · j)) i` has column sums at most `CA C1` over every finite set. -/
+theorem comp_column_bound [DecidableEq μ] (A : LocalOp μ ι) (K : μ → κ → ℝ)
+    (CA C1 : ℝ) (hCA : 0 ≤ CA)
+    (hA : ∀ m (F : Finset ι), ∑ i ∈ F.filter (fun i => m ∈ A.supp i), |A.coef i m| ≤ CA)
+    (hK : ∀ j (F : Finset μ), ∑ m ∈ F, |K m j| ≤ C1) (j : κ) (F : Finset ι) :
+    ∑ i ∈ F, |A.apply (fun m => K m j) i| ≤ CA * C1 := by
+  show ∑ i ∈ F, |∑ m ∈ A.supp i, A.coef i m * K m j| ≤ CA * C1
+  calc ∑ i ∈ F, |∑ m ∈ A.supp i, A.coef i m * K m j|
+        ≤ ∑ i ∈ F, ∑ m ∈ A.supp i, |A.coef i m| * |K m j| := by
+          refine Finset.sum_le_sum fun i _ => ?_
+          refine (Finset.abs_sum_le_sum_abs _ _).trans (le_of_eq ?_)
+          simp [abs_mul]
+    _ = ∑ m ∈ F.biUnion A.supp, ∑ i ∈ F.filter (fun i => m ∈ A.supp i), |A.coef i m| * |K m j| := by
+          refine Finset.sum_comm' fun i m => ?_
+          simp only [Finset.mem_filter, Finset.mem_biUnion]
+          constructor
+          · rintro ⟨hi, hm⟩
+            exact ⟨⟨hi, hm⟩, i, hi, hm⟩
+          · rintro ⟨⟨hi, hm⟩, _⟩
+            exact ⟨hi, hm⟩
+    _ = ∑ m ∈ F.biUnion A.supp, (∑ i ∈ F.filter (fun i => m ∈ A.supp i), |A.coef i m|) * |K m j| := by
+          simp [Finset.sum_mul]
+    _ ≤ ∑ m ∈ F.biUnion A.supp, CA * |K m j| :=
+          Finset.sum_le_sum fun m _ => mul_le_mul_of_nonneg_right (hA m F) (abs_nonneg _)
+    _ = CA * ∑ m ∈ F.biUnion A.supp, |K m j| := by rw [Finset.mul_sum]
+    _ ≤ CA * C1 := mul_le_mul_of_nonneg_left (hK j _) hCA
+
+end Kernel
+
+/-! ### The passage theorem -/
+
+/-- **Passage of a local linear right inverse with a uniform bound to the infinite lattice.** Let
+`A : LocalOp ι κ` (the block averages) and `D : LocalOp ι π` (the plaquette map) be local operators, `qK` a
+function on finitely supported coarse fields (the coarse energy), and `C, C1` constants. Let
+`Jn n : (κ →₀ ℝ) →ₗ[ℝ] (ι → ℝ)` be linear maps converging pointwise to `J`. Assume:
+* for every `y` and every coarse index `k`, eventually `(A (Jn n y)) k = y k`;
+* for every `y` and every finite window `F` of plaquettes, eventually
+  `∑_{p ∈ F} ((D (Jn n y)) p)² ≤ C² qK y`;
+* for every coarse index `j` and every finite window `F` of fine indices, eventually
+  `∑_{i ∈ F} |Jn n (δ_j) i| ≤ C1`, where `δ_j = Finsupp.single j 1`.
+
+Then `J` is linear; `A (J y) = y`; `p ↦ ((D (J y)) p)²` is summable with sum at most `C² qK y`; `J y` is
+absolutely summable with `∑' i, |J y i| ≤ C1 ∑_{j ∈ supp y} |y j|`; and `J y` is square-summable with
+`∑' i, (J y i)² ≤ (C1 ∑_{j ∈ supp y} |y j|)²`. -/
+theorem lemmaJ_passage {ι κ π : Type*} (A : LocalOp ι κ) (D : LocalOp ι π) (qK : (κ →₀ ℝ) → ℝ)
+    (C C1 : ℝ) (Jn : ℕ → (κ →₀ ℝ) →ₗ[ℝ] (ι → ℝ)) (J : (κ →₀ ℝ) → ι → ℝ)
+    (hconv : ∀ y i, Tendsto (fun n => Jn n y i) atTop (𝓝 (J y i)))
+    (hA : ∀ y k, ∀ᶠ n in atTop, A.apply (Jn n y) k = y k)
+    (hD : ∀ y (F : Finset π), ∀ᶠ n in atTop, ∑ p ∈ F, D.apply (Jn n y) p ^ 2 ≤ C ^ 2 * qK y)
+    (hl1 : ∀ j (F : Finset ι), ∀ᶠ n in atTop, ∑ i ∈ F, |Jn n (Finsupp.single j 1) i| ≤ C1) :
+    IsLinearMap ℝ J ∧
+      (∀ y, A.apply (J y) = ⇑y) ∧
+      (∀ y, Summable (fun p => D.apply (J y) p ^ 2) ∧ ∑' p, D.apply (J y) p ^ 2 ≤ C ^ 2 * qK y) ∧
+      (∀ y, Summable (fun i => |J y i|) ∧ ∑' i, |J y i| ≤ C1 * ∑ j ∈ y.support, |y j|) ∧
+      (∀ y, Summable (fun i => J y i ^ 2) ∧
+        ∑' i, J y i ^ 2 ≤ (C1 * ∑ j ∈ y.support, |y j|) ^ 2) := by
+  have hlin := isLinearMap_of_tendsto Jn J hconv
+  set Jl : (κ →₀ ℝ) →ₗ[ℝ] (ι → ℝ) := IsLinearMap.mk' J hlin with hJl
+  have hexp : ∀ y i, J y i = ∑ j ∈ y.support, J (Finsupp.single j 1) i * y j := by
+    intro y i
+    have h : Jl y = ∑ j ∈ y.support, y j • Jl (Finsupp.single j 1) := by
+      conv_lhs => rw [← Finsupp.sum_single y]
+      rw [Finsupp.sum, map_sum]
+      refine Finset.sum_congr rfl fun j _ => ?_
+      rw [show Finsupp.single j (y j) = y j • Finsupp.single j 1 from
+        (Finsupp.smul_single_one j (y j)).symm, map_smul]
+    have h' := congrFun h i
+    simp only [hJl, IsLinearMap.mk'_apply, Finset.sum_apply, Pi.smul_apply, smul_eq_mul] at h'
+    rw [h']
+    exact Finset.sum_congr rfl fun j _ => mul_comm _ _
+  have hcol : ∀ j (F : Finset ι), ∑ i ∈ F, |J (Finsupp.single j 1) i| ≤ C1 := fun j =>
+    (l1_le_of_tendsto (fun i => hconv (Finsupp.single j 1) i) C1 (hl1 j)).1
+  have hl1y : ∀ y : κ →₀ ℝ,
+      Summable (fun i => |J y i|) ∧ ∑' i, |J y i| ≤ C1 * ∑ j ∈ y.support, |y j| := by
+    intro y
+    have h := kernel_l1 (fun i j => J (Finsupp.single j 1) i) C1 hcol y.support y
+    have e : (fun i => |∑ j ∈ y.support, J (Finsupp.single j 1) i * y j|) = fun i => |J y i| := by
+      funext i
+      rw [hexp y i]
+    beta_reduce at h
+    rw [e] at h
+    exact h
+  refine ⟨hlin, fun y => apply_eq_of_tendsto A (hconv y) y (hA y),
+    fun y => energy_le_of_tendsto D (hconv y) _ (hD y), hl1y, fun y => ?_⟩
+  obtain ⟨hs, hle⟩ := hl1y y
+  obtain ⟨hs2, hle2⟩ := summable_sq_of_summable_abs hs
+  exact ⟨hs2, hle2.trans (pow_le_pow_left₀ (tsum_nonneg fun i => abs_nonneg _) hle 2)⟩
+
+/-! ## 4. Recovery through a lift with a bound in terms of the image -/
+
+/-- **Recovery through a lift.** Let `M : E →L[ℝ] G` be a continuous linear map between real normed
+spaces, `e j → e∞` with `M e∞ = 0`, and let `c j` satisfy `M (c j) = M (e j)` and
+`‖c j‖ ≤ C ‖M (e j)‖`. Then `M (e j − c j) = 0` for every `j`, and `e j − c j → e∞`. -/
+theorem recovery_of_lift {E G : Type*} [NormedAddCommGroup E] [NormedSpace ℝ E]
+    [NormedAddCommGroup G] [NormedSpace ℝ G] (M : E →L[ℝ] G) (C : ℝ) (e c : ℕ → E) (einf : E)
+    (he : Tendsto e atTop (𝓝 einf)) (hM0 : M einf = 0) (hMc : ∀ j, M (c j) = M (e j))
+    (hc : ∀ j, ‖c j‖ ≤ C * ‖M (e j)‖) :
+    (∀ j, M (e j - c j) = 0) ∧ Tendsto (fun j => e j - c j) atTop (𝓝 einf) := by
+  refine ⟨fun j => by rw [map_sub, hMc, sub_self], ?_⟩
+  have hδ : Tendsto (fun j => M (e j)) atTop (𝓝 0) := by
+    have h := (M.continuous.tendsto einf).comp he
+    rw [hM0] at h
+    exact h
+  have hc0 : Tendsto c atTop (𝓝 0) := by
+    refine squeeze_zero_norm hc ?_
+    simpa using hδ.norm.const_mul C
+  simpa using he.sub hc0
+
+/-! ## 5. A right inverse of the block-centre filter on `ℤ` and on `ℤ⁴` -/
+
+section Filter
+
+/-- `√2 ^ 2 = 2`. -/
+theorem sqrt_two_sq : Real.sqrt 2 ^ 2 = 2 := Real.sq_sqrt (by norm_num)
+
+/-- `7/5 < √2`. -/
+theorem sqrt_two_gt : (7 / 5 : ℝ) < Real.sqrt 2 := by
+  nlinarith [sqrt_two_sq, Real.sqrt_nonneg 2]
+
+/-- `√2 < 3/2`. -/
+theorem sqrt_two_lt : Real.sqrt 2 < 3 / 2 := by
+  nlinarith [sqrt_two_sq, Real.sqrt_nonneg 2]
+
+/-- `ρ = 2√2 − 3`. -/
+def rho : ℝ := 2 * Real.sqrt 2 - 3
+
+/-- `s = 3 − 2√2`, the decay factor per lattice step. -/
+def sdec : ℝ := 3 - 2 * Real.sqrt 2
+
+/-- `ρ² + 6ρ + 1 = 0`. -/
+theorem rho_quad : rho ^ 2 + 6 * rho + 1 = 0 := by
+  unfold rho
+  linear_combination (4 : ℝ) * sqrt_two_sq
+
+/-- `0 < s`. -/
+theorem sdec_pos : 0 < sdec := by
+  unfold sdec
+  linarith [sqrt_two_lt]
+
+/-- `s < 1`. -/
+theorem sdec_lt_one : sdec < 1 := by
+  unfold sdec
+  linarith [sqrt_two_gt]
+
+/-- `|ρ| = s`. -/
+theorem abs_rho : |rho| = sdec := by
+  have h : rho = -sdec := by
+    unfold rho sdec
+    ring
+  rw [h, abs_neg, abs_of_pos sdec_pos]
+
+/-- The one-dimensional kernel `g j = √2 ρ^{|j|}`. -/
+def gk (j : ℤ) : ℝ := Real.sqrt 2 * rho ^ j.natAbs
+
+/-- The one-dimensional filter `(τ f) j = ¾ f j + ⅛ (f (j − 1) + f (j + 1))`. -/
+def tau (f : ℤ → ℝ) (j : ℤ) : ℝ := 3 / 4 * f j + 1 / 8 * (f (j - 1) + f (j + 1))
+
+/-- **`g` inverts `τ`**: `τ g = δ₀`. -/
+theorem tau_gk (j : ℤ) : tau gk j = if j = 0 then 1 else 0 := by
+  obtain ⟨m, rfl | rfl⟩ := Int.eq_nat_or_neg j
+  · rcases m with _ | k
+    · simp [tau, gk, rho]
+      linear_combination (1 / 2 : ℝ) * sqrt_two_sq
+    · have h1 : ((k + 1 : ℕ) : ℤ) - 1 = ((k : ℕ) : ℤ) := by push_cast; ring
+      have h2 : ((k + 1 : ℕ) : ℤ) + 1 = ((k + 2 : ℕ) : ℤ) := by push_cast; ring
+      have h3 : ((k + 1 : ℕ) : ℤ) ≠ 0 := by omega
+      simp only [tau, gk, h1, h2, Int.natAbs_natCast, if_neg h3]
+      linear_combination (Real.sqrt 2 * rho ^ k / 8) * rho_quad
+  · rcases m with _ | k
+    · simp [tau, gk, rho]
+      linear_combination (1 / 2 : ℝ) * sqrt_two_sq
+    · have h1 : -((k + 1 : ℕ) : ℤ) - 1 = -((k + 2 : ℕ) : ℤ) := by push_cast; ring
+      have h2 : -((k + 1 : ℕ) : ℤ) + 1 = -((k : ℕ) : ℤ) := by push_cast; ring
+      have h3 : -((k + 1 : ℕ) : ℤ) ≠ 0 := by omega
+      simp only [tau, gk, h1, h2, Int.natAbs_neg, Int.natAbs_natCast, if_neg h3]
+      linear_combination (Real.sqrt 2 * rho ^ k / 8) * rho_quad
+
+/-- **Decay of `g`**: `|g j| = √2 s^{|j|}`. -/
+theorem abs_gk (j : ℤ) : |gk j| = Real.sqrt 2 * sdec ^ j.natAbs := by
+  rw [gk, abs_mul, abs_pow, abs_rho, abs_of_pos (Real.sqrt_pos.2 two_pos)]
+
+/-- **`ℓ¹` norm of `g`**: `∑_{j ∈ ℤ} |g j| = 2`. -/
+theorem hasSum_abs_gk : HasSum (fun j : ℤ => |gk j|) 2 := by
+  have hg := hasSum_geometric_of_lt_one sdec_pos.le sdec_lt_one
+  have h1 : HasSum (fun n : ℕ => |gk (n : ℤ)|) (Real.sqrt 2 * (1 - sdec)⁻¹) := by
+    have e : (fun n : ℕ => |gk (n : ℤ)|) = fun n => Real.sqrt 2 * sdec ^ n := by
+      funext n
+      rw [abs_gk, Int.natAbs_natCast]
+    rw [e]
+    exact hg.mul_left _
+  have h2 : HasSum (fun n : ℕ => |gk (-((n : ℤ) + 1))|) (Real.sqrt 2 * sdec * (1 - sdec)⁻¹) := by
+    have e : (fun n : ℕ => |gk (-((n : ℤ) + 1))|) = fun n => Real.sqrt 2 * sdec * sdec ^ n := by
+      funext n
+      have hn : (-((n : ℤ) + 1)).natAbs = n + 1 := by
+        rw [Int.natAbs_neg, show (n : ℤ) + 1 = ((n + 1 : ℕ) : ℤ) by push_cast; ring,
+          Int.natAbs_natCast]
+      rw [abs_gk, hn, pow_succ]
+      ring
+    rw [e]
+    exact hg.mul_left _
+  have h := HasSum.of_nat_of_neg_add_one (f := fun j : ℤ => |gk j|) h1 h2
+  have hne : (1 - sdec) ≠ 0 := by linarith [sdec_lt_one]
+  have key : Real.sqrt 2 * (1 + sdec) = 2 * (1 - sdec) := by
+    unfold sdec
+    linear_combination (-2 : ℝ) * sqrt_two_sq
+  have hval : Real.sqrt 2 * (1 - sdec)⁻¹ + Real.sqrt 2 * sdec * (1 - sdec)⁻¹ = 2 := by
+    calc Real.sqrt 2 * (1 - sdec)⁻¹ + Real.sqrt 2 * sdec * (1 - sdec)⁻¹
+          = Real.sqrt 2 * (1 + sdec) * (1 - sdec)⁻¹ := by ring
+      _ = 2 * (1 - sdec) * (1 - sdec)⁻¹ := by rw [key]
+      _ = 2 := mul_inv_cancel_right₀ hne 2
+  rwa [hval] at h
+
+/-- Every finite partial sum of `|g|` is at most `2`. -/
+theorem sum_abs_gk_le (F : Finset ℤ) : ∑ j ∈ F, |gk j| ≤ 2 :=
+  sum_le_hasSum F (fun _ _ => abs_nonneg _) hasSum_abs_gk
+
+/-- Sites of `ℤ⁴`. -/
+abbrev Z4 : Type := Fin 4 → ℤ
+
+/-- The four-dimensional kernel `G z = ∏_ν g (z ν)`. -/
+def Gk (z : Z4) : ℝ := ∏ ν, gk (z ν)
+
+/-- The filter weights: `w 0 = 3/4` and `w a = 1/8` otherwise (used for `a = ±1`). -/
+def wf (a : ℤ) : ℝ := if a = 0 then 3 / 4 else 1 / 8
+
+/-- The three-point stencil `{−1, 0, 1}`. -/
+def st : Finset ℤ := {-1, 0, 1}
+
+/-- The tensor-product filter `T = τ₁τ₂τ₃τ₄` on `ℤ⁴`, written as one stencil:
+`(T f) z = ∑_{e ∈ {−1, 0, 1}⁴} (∏_ν w (e ν)) f (z + e)`. -/
+def Tf (f : Z4 → ℝ) (z : Z4) : ℝ :=
+  ∑ e ∈ Fintype.piFinset (fun _ : Fin 4 => st), (∏ ν, wf (e ν)) * f (z + e)
+
+/-- `τ` is the one-dimensional stencil with weights `w`. -/
+theorem tau_eq_stencil (f : ℤ → ℝ) (j : ℤ) : tau f j = ∑ a ∈ st, wf a * f (j + a) := by
+  simp [tau, st, wf, sub_eq_add_neg]
+  ring
+
+/-- `T` acts on product functions factor by factor. -/
+theorem Tf_prod (h : Fin 4 → ℤ → ℝ) (z : Z4) :
+    Tf (fun x => ∏ ν, h ν (x ν)) z = ∏ ν, ∑ a ∈ st, wf a * h ν (z ν + a) := by
+  rw [Finset.prod_univ_sum]
+  unfold Tf
+  refine Finset.sum_congr rfl fun e _ => ?_
+  simp only [Pi.add_apply, Finset.prod_mul_distrib]
+
+/-- **`G` inverts `T`**: `T G = δ₀` on `ℤ⁴`. -/
+theorem Tf_Gk (z : Z4) : Tf Gk z = if z = 0 then 1 else 0 := by
+  have h := Tf_prod (fun _ => gk) z
+  have hfac : ∀ ν, ∑ a ∈ st, wf a * gk (z ν + a) = if z ν = 0 then 1 else 0 := fun ν =>
+    (tau_eq_stencil gk (z ν)).symm.trans (tau_gk (z ν))
+  have hG : (fun x : Z4 => ∏ ν, (fun _ : Fin 4 => gk) ν (x ν)) = Gk := rfl
+  rw [hG] at h
+  rw [h, Finset.prod_congr rfl fun ν _ => hfac ν]
+  by_cases hz : z = 0
+  · subst hz
+    simp
+  · rw [if_neg hz]
+    obtain ⟨ν, hν⟩ := Function.ne_iff.mp hz
+    have hν' : z ν ≠ 0 := hν
+    exact Finset.prod_eq_zero (Finset.mem_univ ν) (by simp [hν'])
+
+/-- **Decay of `G`**: `|G z| = 4 s^{|z|₁}` with `|z|₁ = ∑_ν |z ν|`. -/
+theorem abs_Gk (z : Z4) : |Gk z| = 4 * sdec ^ (∑ ν, (z ν).natAbs) := by
+  rw [Gk, Finset.abs_prod]
+  simp_rw [abs_gk]
+  rw [Finset.prod_mul_distrib, Finset.prod_pow_eq_pow_sum, Finset.prod_const, Finset.card_univ,
+    Fintype.card_fin]
+  congr 1
+  rw [show (4 : ℕ) = 2 * 2 from rfl, pow_mul, sqrt_two_sq]
+  norm_num
+
+/-- **`ℓ¹` bound for `G`**: every finite partial sum of `|G|` is at most `2⁴ = 16`. -/
+theorem sum_abs_Gk_le (F : Finset Z4) : ∑ z ∈ F, |Gk z| ≤ 16 := by
+  classical
+  set t : Fin 4 → Finset ℤ := fun ν => F.image (fun z => z ν) with ht
+  have hsub : F ⊆ Fintype.piFinset t := fun z hz =>
+    Fintype.mem_piFinset.2 fun ν => Finset.mem_image_of_mem _ hz
+  calc ∑ z ∈ F, |Gk z| ≤ ∑ z ∈ Fintype.piFinset t, |Gk z| :=
+        Finset.sum_le_sum_of_subset_of_nonneg hsub fun _ _ _ => abs_nonneg _
+    _ = ∏ ν, ∑ a ∈ t ν, |gk a| := by
+        rw [Finset.prod_univ_sum]
+        refine Finset.sum_congr rfl fun z _ => ?_
+        rw [Gk, Finset.abs_prod]
+    _ ≤ ∏ _ν : Fin 4, (2 : ℝ) :=
+        Finset.prod_le_prod (fun ν _ => Finset.sum_nonneg fun a _ => abs_nonneg _)
+          fun ν _ => sum_abs_gk_le _
+    _ = 16 := by norm_num [Finset.prod_const]
+
+/-- Column sums of the translation kernel `(z, z') ↦ G (z − z')` are at most `16`. -/
+theorem sum_abs_Gk_sub_le (z' : Z4) (F : Finset Z4) : ∑ z ∈ F, |Gk (z - z')| ≤ 16 := by
+  classical
+  have hinj : Set.InjOn (fun z : Z4 => z - z') F := fun a _ b _ h => sub_left_injective h
+  have h := sum_abs_Gk_le (F.image (fun z => z - z'))
+  rwa [Finset.sum_image hinj] at h
+
+/-- Row sums of the translation kernel `(z, z') ↦ G (z − z')` are at most `16`. -/
+theorem sum_abs_Gk_sub_le' (z : Z4) (S : Finset Z4) : ∑ z' ∈ S, |Gk (z - z')| ≤ 16 := by
+  classical
+  have hinj : Set.InjOn (fun z' : Z4 => z - z') S := fun a _ b _ h => sub_right_injective h
+  have h := sum_abs_Gk_le (S.image (fun z' => z - z'))
+  rwa [Finset.sum_image hinj] at h
+
+/-- The convolution `(G ∗ y) z = ∑_{z' ∈ supp y} G (z − z') y z'` of `G` with a finitely supported
+field `y` on `ℤ⁴`. -/
+def Gconv (y : Z4 →₀ ℝ) (z : Z4) : ℝ := ∑ z' ∈ y.support, Gk (z - z') * y z'
+
+/-- **`G ∗` is a right inverse of `T` on finitely supported fields**: `T (G ∗ y) = y`. -/
+theorem Tf_Gconv (y : Z4 →₀ ℝ) : Tf (Gconv y) = ⇑y := by
+  funext z
+  have h1 : Tf (Gconv y) z = ∑ z' ∈ y.support, Tf Gk (z - z') * y z' := by
+    unfold Tf Gconv
+    simp_rw [Finset.mul_sum, Finset.sum_mul]
+    rw [Finset.sum_comm]
+    refine Finset.sum_congr rfl fun z' _ => Finset.sum_congr rfl fun e _ => ?_
+    rw [add_sub_right_comm]
+    ring
+  rw [h1]
+  simp_rw [Tf_Gk, sub_eq_zero, ite_mul, one_mul, zero_mul]
+  rw [Finset.sum_ite_eq]
+  split_ifs with h
+  · rfl
+  · simp only [Finsupp.mem_support_iff, not_not] at h
+    exact h.symm
+
+/-- **`ℓ¹` bound for `G ∗`**: for finitely supported `y`, `G ∗ y` is absolutely summable with
+`∑' z, |(G ∗ y) z| ≤ 16 ∑_{z'} |y z'|`. -/
+theorem Gconv_l1 (y : Z4 →₀ ℝ) :
+    Summable (fun z => |Gconv y z|) ∧ ∑' z, |Gconv y z| ≤ 16 * ∑ z' ∈ y.support, |y z'| :=
+  kernel_l1 (fun z z' => Gk (z - z')) 16 (fun z' F => sum_abs_Gk_sub_le z' F) y.support y
+
+/-- **`ℓ²` bound for `G ∗`**: for finitely supported `y`, `∑' z, ((G ∗ y) z)² ≤ 256 ∑_{z'} (y z')²`,
+i.e. `‖G ∗ y‖ ≤ 16 ‖y‖` on finitely supported fields. Here `G ∗ y` is a right inverse of `T` applied to `y`
+(`Tf_Gconv`); that it equals `T⁻¹ y`, which needs injectivity of `T` on `ℓ²`, is not formalised. -/
+theorem Gconv_l2 (y : Z4 →₀ ℝ) :
+    Summable (fun z => Gconv y z ^ 2) ∧
+      ∑' z, Gconv y z ^ 2 ≤ 16 * 16 * ∑ z' ∈ y.support, y z' ^ 2 :=
+  kernel_l2 (fun z z' => Gk (z - z')) 16 16 (by norm_num) y.support y
+    (fun z => sum_abs_Gk_sub_le' z y.support) (fun z' F => sum_abs_Gk_sub_le z' F)
+
+end Filter
+
+/-! ## 6. Examples -/
+
+namespace Example
+
+/-- Block averages on `ℤ` with blocks `{2w, 2w + 1}`: `(A f) w = ½ (f (2w) + f (2w + 1))`. -/
+def blockAvg : LocalOp ℤ ℤ := ⟨fun w => {2 * w, 2 * w + 1}, fun _ _ => 1 / 2⟩
+
+/-- The difference operator on `ℤ`: `(D f) p = f (p + 1) − f p`. -/
+def diffOp : LocalOp ℤ ℤ := ⟨fun p => {p, p + 1}, fun p i => if i = p then -1 else 1⟩
+
+/-- The identity of `ℤ`, as a local operator. -/
+def idOp : LocalOp ℤ ℤ := ⟨fun k => {k}, fun _ _ => 1⟩
+
+/-- The filter `τ` of §5, as a local operator on `ℤ`. -/
+def tauOp : LocalOp ℤ ℤ := ⟨fun i => {i - 1, i, i + 1}, fun i m => if m = i then 3 / 4 else 1 / 8⟩
+
+/-- `(A f) w = (f (2w) + f (2w + 1)) / 2` for the block averages. -/
+theorem blockAvg_apply (f : ℤ → ℝ) (w : ℤ) :
+    blockAvg.apply f w = (f (2 * w) + f (2 * w + 1)) / 2 := by
+  have h : 2 * w ≠ 2 * w + 1 := by omega
+  simp only [LocalOp.apply, blockAvg, Finset.sum_pair h]
+  ring
+
+/-- `(D f) p = f (p + 1) − f p` for the difference operator. -/
+theorem diffOp_apply (f : ℤ → ℝ) (p : ℤ) : diffOp.apply f p = f (p + 1) - f p := by
+  have h : p ≠ p + 1 := by omega
+  have h' : p + 1 ≠ p := by omega
+  simp only [LocalOp.apply, diffOp, Finset.sum_pair h, if_neg h', ↓reduceIte]
+  ring
+
+/-- The identity operator acts as the identity. -/
+theorem idOp_apply (f : ℤ → ℝ) (k : ℤ) : idOp.apply f k = f k := by
+  simp [LocalOp.apply, idOp]
+
+/-- The local operator `tauOp` acts as the filter `τ`. -/
+theorem tauOp_apply (f : ℤ → ℝ) (i : ℤ) : tauOp.apply f i = tau f i := by
+  have h1 : i - 1 ∉ ({i, i + 1} : Finset ℤ) := by
+    simp only [Finset.mem_insert, Finset.mem_singleton]
+    omega
+  have h2 : i ∉ ({i + 1} : Finset ℤ) := by
+    simp only [Finset.mem_singleton]
+    omega
+  have e1 : i - 1 ≠ i := by omega
+  have e2 : i + 1 ≠ i := by omega
+  simp only [LocalOp.apply, tauOp, Finset.sum_insert h1, Finset.sum_insert h2, Finset.sum_singleton,
+    if_neg e1, if_neg e2, ↓reduceIte, tau]
+  ring
+
+/-- A sum of nonnegative terms that vanish off `T` is at most the sum over `T`. -/
+theorem sum_le_of_vanish {α : Type*} [DecidableEq α] (f : α → ℝ) (T : Finset α)
+    (hf0 : ∀ p, 0 ≤ f p) (hT : ∀ p ∉ T, f p = 0) (F : Finset α) :
+    ∑ p ∈ F, f p ≤ ∑ p ∈ T, f p :=
+  calc ∑ p ∈ F, f p = ∑ p ∈ F ∩ T, f p :=
+        (Finset.sum_subset (show F ∩ T ⊆ F from Finset.inter_subset_left)
+          (fun p hpF hp => hT p (fun hpT => hp (Finset.mem_inter.2 ⟨hpF, hpT⟩)))).symm
+    _ ≤ ∑ p ∈ T, f p :=
+        Finset.sum_le_sum_of_subset_of_nonneg (show F ∩ T ⊆ T from Finset.inter_subset_right)
+          (fun p _ _ => hf0 p)
+
+/-! ### A varying sequence of right inverses of the block averages -/
+
+/-- The block-constant lift of `δ₀`: `1` on the fine sites `0, 1` and `0` elsewhere. -/
+def liftEx (i : ℤ) : ℝ := if i = 0 ∨ i = 1 then 1 else 0
+
+/-- A bump with zero block averages: `1` at `0`, `−1` at `1`, `0` elsewhere. -/
+def bumpEx (i : ℤ) : ℝ := if i = 0 then 1 else if i = 1 then -1 else 0
+
+/-- The perturbed lift `lift + ε · bump`. -/
+def gE (ε : ℝ) (i : ℤ) : ℝ := liftEx i + ε * bumpEx i
+
+/-- The approximants `g n = lift + (n + 1)⁻¹ · bump`. -/
+def gEx (n : ℕ) : ℤ → ℝ := gE (1 / ((n : ℝ) + 1))
+
+/-- The approximants converge pointwise to the block-constant lift. -/
+theorem gEx_tendsto (i : ℤ) : Tendsto (fun n => gEx n i) atTop (𝓝 (liftEx i)) := by
+  have h := (tendsto_one_div_add_atTop_nhds_zero_nat (𝕜 := ℝ)).mul_const (bumpEx i)
+  have h2 := (tendsto_const_nhds (x := liftEx i)).add h
+  simpa [gEx, gE] using h2
+
+/-- For every `ε`, the block averages of `lift + ε · bump` are `δ₀`. -/
+theorem gE_blockAvg (ε : ℝ) (k : ℤ) :
+    blockAvg.apply (gE ε) k = (Finsupp.single (0 : ℤ) (1 : ℝ)) k := by
+  rw [blockAvg_apply, Finsupp.single_apply]
+  by_cases hk : k = 0
+  · subst hk
+    norm_num [gE, liftEx, bumpEx]
+    ring
+  · have h1 : 2 * k ≠ 0 := by omega
+    have h2 : 2 * k ≠ 1 := by omega
+    have h3 : 2 * k + 1 ≠ 0 := by omega
+    have h4 : 2 * k + 1 ≠ 1 := by omega
+    have h5 : (0 : ℤ) ≠ k := fun h => hk h.symm
+    simp [gE, liftEx, bumpEx, h1, h2, h3, h4, h5]
+
+/-- For `0 ≤ ε ≤ 1`, every finite window of the difference energy of `lift + ε · bump` is at most `8`. -/
+theorem gE_energy (ε : ℝ) (hε0 : 0 ≤ ε) (hε1 : ε ≤ 1) (F : Finset ℤ) :
+    ∑ p ∈ F, diffOp.apply (gE ε) p ^ 2 ≤ 8 := by
+  have hT : ∀ p ∉ ({-1, 0, 1} : Finset ℤ), diffOp.apply (gE ε) p ^ 2 = 0 := by
+    intro p hp
+    simp only [Finset.mem_insert, Finset.mem_singleton, not_or] at hp
+    obtain ⟨h1, h2, h3⟩ := hp
+    have a1 : p + 1 ≠ 0 := by omega
+    have a2 : p + 1 ≠ 1 := by omega
+    rw [diffOp_apply]
+    simp [gE, liftEx, bumpEx, a1, a2, h2, h3]
+  refine (sum_le_of_vanish _ _ (fun p => sq_nonneg _) hT F).trans ?_
+  simp [diffOp_apply, gE, liftEx, bumpEx]
+  nlinarith
+
+/-- **Witness for §2 with a varying sequence.** On `ℤ` with blocks `{2w, 2w + 1}`, the approximants
+`g n = lift + (n + 1)⁻¹ · bump` are right inverses of the block averages for `y = δ₀` at every `n`, converge
+pointwise to the block-constant lift, and have every finite window of their difference energy at most
+`8`; the conclusions of `apply_eq_of_tendsto` and `energy_le_of_tendsto` follow for the limit. -/
+theorem example_passage :
+    (∀ i, Tendsto (fun n => gEx n i) atTop (𝓝 (liftEx i))) ∧
+    (∀ k, ∀ᶠ n in atTop, blockAvg.apply (gEx n) k = (Finsupp.single (0 : ℤ) (1 : ℝ)) k) ∧
+    (∀ F : Finset ℤ, ∀ᶠ n in atTop, ∑ p ∈ F, diffOp.apply (gEx n) p ^ 2 ≤ 8) ∧
+    blockAvg.apply liftEx = ⇑(Finsupp.single (0 : ℤ) (1 : ℝ)) ∧
+    (Summable (fun p => diffOp.apply liftEx p ^ 2) ∧ ∑' p, diffOp.apply liftEx p ^ 2 ≤ 8) := by
+  have hA : ∀ k, ∀ᶠ n in atTop, blockAvg.apply (gEx n) k = (Finsupp.single (0 : ℤ) (1 : ℝ)) k :=
+    fun k => Eventually.of_forall fun n => gE_blockAvg _ k
+  have hE : ∀ F : Finset ℤ, ∀ᶠ n in atTop, ∑ p ∈ F, diffOp.apply (gEx n) p ^ 2 ≤ 8 := by
+    intro F
+    refine Eventually.of_forall fun n => gE_energy _ (by positivity) ?_ F
+    rw [div_le_one (by positivity)]
+    have := Nat.cast_nonneg (α := ℝ) n
+    linarith
+  exact ⟨gEx_tendsto, hA, hE, apply_eq_of_tendsto blockAvg gEx_tendsto _ hA,
+    energy_le_of_tendsto diffOp gEx_tendsto 8 hE⟩
+
+/-! ### The passage theorem on the identity lift -/
+
+/-- The coarse energy on `ℤ`: `qK y = ∑' w, (y (w + 1) − y w)²`. -/
+def qKEx (y : ℤ →₀ ℝ) : ℝ := ∑' w, (y (w + 1) - y w) ^ 2
+
+/-- The constant sequence of coercions `(ℤ →₀ ℝ) → (ℤ → ℝ)`. -/
+def JnEx : ℕ → (ℤ →₀ ℝ) →ₗ[ℝ] (ℤ → ℝ) := fun _ => Finsupp.lcoeFun
+
+/-- Each `JnEx n` is the coercion. -/
+theorem JnEx_apply (n : ℕ) (y : ℤ →₀ ℝ) : JnEx n y = ⇑y := rfl
+
+/-- For finitely supported `y` on `ℤ`, `w ↦ (y (w + 1) − y w)²` is summable. -/
+theorem summable_diff_sq (y : ℤ →₀ ℝ) : Summable (fun w => (y (w + 1) - y w) ^ 2) := by
+  classical
+  refine summable_of_ne_finset_zero (s := y.support ∪ y.support.image (fun w => w - 1)) ?_
+  intro w hw
+  simp only [Finset.mem_union, Finset.mem_image, Finsupp.mem_support_iff, not_or, not_exists,
+    not_and, ne_eq, not_not] at hw
+  have h3 : y (w + 1) = 0 := by
+    by_contra h
+    exact hw.2 (w + 1) h (by ring)
+  simp [hw.1, h3]
+
+/-- Every finite window of `|δ_j|` has sum at most `1`. -/
+theorem single_abs_sum_le (j : ℤ) (F : Finset ℤ) :
+    ∑ i ∈ F, |(Finsupp.single j (1 : ℝ)) i| ≤ 1 := by
+  have e : ∀ i, |(Finsupp.single j (1 : ℝ)) i| = if j = i then 1 else 0 := fun i => by
+    rw [Finsupp.single_apply]
+    split_ifs <;> simp
+  simp_rw [e]
+  rw [Finset.sum_ite_eq]
+  split_ifs <;> norm_num
+
+/-- **Witness for `lemmaJ_passage`** (degenerate: the sequence is constant and the lift is the identity).
+On `ℤ`, with the identity as the block averages, the difference operator as the plaquette map,
+`qK y = ∑' w, (y (w + 1) − y w)²`, `C = C1 = 1`, and `Jn n = J` the coercion of finitely supported fields,
+the four hypotheses hold and the passage theorem gives its five conclusions. -/
+theorem example_lemmaJ_passage :
+    (∀ (y : ℤ →₀ ℝ) (i : ℤ), Tendsto (fun n => JnEx n y i) atTop (𝓝 (y i))) ∧
+    (∀ (y : ℤ →₀ ℝ) (k : ℤ), ∀ᶠ n in atTop, idOp.apply (JnEx n y) k = y k) ∧
+    (∀ (y : ℤ →₀ ℝ) (F : Finset ℤ), ∀ᶠ n in atTop,
+      ∑ p ∈ F, diffOp.apply (JnEx n y) p ^ 2 ≤ 1 ^ 2 * qKEx y) ∧
+    (∀ (j : ℤ) (F : Finset ℤ), ∀ᶠ n in atTop,
+      ∑ i ∈ F, |JnEx n (Finsupp.single j 1) i| ≤ 1) ∧
+    (IsLinearMap ℝ (fun y : ℤ →₀ ℝ => (⇑y : ℤ → ℝ)) ∧
+      (∀ y : ℤ →₀ ℝ, idOp.apply ⇑y = ⇑y) ∧
+      (∀ y : ℤ →₀ ℝ, Summable (fun p => diffOp.apply ⇑y p ^ 2) ∧
+        ∑' p, diffOp.apply ⇑y p ^ 2 ≤ 1 ^ 2 * qKEx y) ∧
+      (∀ y : ℤ →₀ ℝ, Summable (fun i => |y i|) ∧ ∑' i, |y i| ≤ 1 * ∑ j ∈ y.support, |y j|) ∧
+      (∀ y : ℤ →₀ ℝ, Summable (fun i => y i ^ 2) ∧
+        ∑' i, y i ^ 2 ≤ (1 * ∑ j ∈ y.support, |y j|) ^ 2)) := by
+  have hconv : ∀ (y : ℤ →₀ ℝ) (i : ℤ), Tendsto (fun n => JnEx n y i) atTop (𝓝 (y i)) :=
+    fun y i => tendsto_const_nhds
+  have hA : ∀ (y : ℤ →₀ ℝ) (k : ℤ), ∀ᶠ n in atTop, idOp.apply (JnEx n y) k = y k :=
+    fun y k => Eventually.of_forall fun n => by rw [idOp_apply, JnEx_apply]
+  have hD : ∀ (y : ℤ →₀ ℝ) (F : Finset ℤ), ∀ᶠ n in atTop,
+      ∑ p ∈ F, diffOp.apply (JnEx n y) p ^ 2 ≤ 1 ^ 2 * qKEx y := by
+    intro y F
+    refine Eventually.of_forall fun n => ?_
+    simp only [diffOp_apply, JnEx_apply, one_pow, one_mul, qKEx]
+    exact (summable_diff_sq y).sum_le_tsum F (fun _ _ => sq_nonneg _)
+  have hl1 : ∀ (j : ℤ) (F : Finset ℤ), ∀ᶠ n in atTop,
+      ∑ i ∈ F, |JnEx n (Finsupp.single j 1) i| ≤ 1 :=
+    fun j F => Eventually.of_forall fun n => by
+      rw [JnEx_apply]
+      exact single_abs_sum_le j F
+  exact ⟨hconv, hA, hD, hl1,
+    lemmaJ_passage idOp diffOp qKEx 1 1 JnEx (fun y => ⇑y) hconv hA hD hl1⟩
+
+/-! ### Kernels, composition and the filter -/
+
+/-- Column sums of `τ` as a local operator are at most `1`. -/
+theorem tauOp_col (m : ℤ) (F : Finset ℤ) :
+    ∑ i ∈ F.filter (fun i => m ∈ tauOp.supp i), |tauOp.coef i m| ≤ 1 := by
+  have hsub : F.filter (fun i => m ∈ tauOp.supp i) ⊆ {m - 1, m, m + 1} := by
+    intro i hi
+    simp only [Finset.mem_filter, tauOp, Finset.mem_insert, Finset.mem_singleton] at hi ⊢
+    omega
+  have h1 : m - 1 ∉ ({m, m + 1} : Finset ℤ) := by
+    simp only [Finset.mem_insert, Finset.mem_singleton]
+    omega
+  have h2 : m ∉ ({m + 1} : Finset ℤ) := by
+    simp only [Finset.mem_singleton]
+    omega
+  have e1 : m ≠ m - 1 := by omega
+  have e2 : m ≠ m + 1 := by omega
+  calc ∑ i ∈ F.filter (fun i => m ∈ tauOp.supp i), |tauOp.coef i m|
+        ≤ ∑ i ∈ ({m - 1, m, m + 1} : Finset ℤ), |tauOp.coef i m| :=
+        Finset.sum_le_sum_of_subset_of_nonneg hsub fun _ _ _ => abs_nonneg _
+    _ = 1 := by
+        rw [Finset.sum_insert h1, Finset.sum_insert h2, Finset.sum_singleton]
+        simp only [tauOp, if_neg e1, if_neg e2]
+        norm_num
+
+/-- Column sums of the translation kernel `(m, j) ↦ g (m − j)` on `ℤ` are at most `2`. -/
+theorem gk_col (j : ℤ) (F : Finset ℤ) : ∑ m ∈ F, |gk (m - j)| ≤ 2 := by
+  have hinj : Set.InjOn (fun m : ℤ => m - j) F := fun a _ b _ h => sub_left_injective h
+  have h := sum_abs_gk_le (F.image (fun m => m - j))
+  rwa [Finset.sum_image hinj] at h
+
+/-- The composite kernel of `τ` with `(m, j) ↦ g (m − j)` is the identity kernel. -/
+theorem tauOp_gk (i j : ℤ) : tauOp.apply (fun m => gk (m - j)) i = if i = j then 1 else 0 := by
+  rw [tauOp_apply]
+  have e1 : i - 1 - j = (i - j) - 1 := by ring
+  have e2 : i + 1 - j = (i - j) + 1 := by ring
+  have h : tau (fun m => gk (m - j)) i = tau gk (i - j) := by
+    simp only [tau, e1, e2]
+  rw [h, tau_gk]
+  by_cases hij : i = j
+  · simp [hij]
+  · have hne : i - j ≠ 0 := sub_ne_zero.mpr hij
+    simp [hij, hne]
+
+/-- **Witness for `comp_column_bound`.** The filter `τ` on `ℤ` (a local operator with column sums `1`)
+composed with the kernel `(m, j) ↦ g (m − j)` (column sums `2`) has column sums at most `1 · 2`; the
+composite is in fact the identity kernel, since `τ g = δ₀`. -/
+theorem example_comp_column :
+    (∀ (m : ℤ) (F : Finset ℤ), ∑ i ∈ F.filter (fun i => m ∈ tauOp.supp i), |tauOp.coef i m| ≤ 1) ∧
+    (∀ (j : ℤ) (F : Finset ℤ), ∑ m ∈ F, |gk (m - j)| ≤ 2) ∧
+    (∀ (j : ℤ) (F : Finset ℤ), ∑ i ∈ F, |tauOp.apply (fun m => gk (m - j)) i| ≤ 1 * 2) ∧
+    (∀ i j : ℤ, tauOp.apply (fun m => gk (m - j)) i = if i = j then 1 else 0) :=
+  ⟨tauOp_col, gk_col,
+    fun j F => comp_column_bound tauOp (fun m j => gk (m - j)) 1 2 zero_le_one tauOp_col gk_col j F,
+    tauOp_gk⟩
+
+/-- The unit field at the origin of `ℤ⁴`. -/
+def y0 : Z4 →₀ ℝ := Finsupp.single 0 1
+
+/-- `∑ |y0| = 1`. -/
+theorem y0_abs_sum : ∑ z' ∈ y0.support, |y0 z'| = 1 := by
+  simp [y0]
+
+/-- `∑ y0² = 1`. -/
+theorem y0_sq_sum : ∑ z' ∈ y0.support, y0 z' ^ 2 = 1 := by
+  simp [y0]
+
+/-- **Witness for §3 and §5 on `ℤ⁴`.** The right-inverse kernel `G` of the filter: `τ g = δ₀`, `∑ |g| = 2`,
+`T G = δ₀`, `|G z| = 4 s^{|z|₁}`, and the translation kernel `G (z − z')` has row and column sums at most
+`16`; for the unit field `y0` at the origin this gives `T (G ∗ y0) = y0`, `∑' |G ∗ y0| ≤ 16` and
+`∑' (G ∗ y0)² ≤ 256`. -/
+theorem example_filter :
+    (∀ j, tau gk j = if j = 0 then 1 else 0) ∧ HasSum (fun j : ℤ => |gk j|) 2 ∧
+    (∀ z, Tf Gk z = if z = 0 then 1 else 0) ∧
+    (∀ z, |Gk z| = 4 * sdec ^ (∑ ν, (z ν).natAbs)) ∧
+    (∀ (z' : Z4) (F : Finset Z4), ∑ z ∈ F, |Gk (z - z')| ≤ 16) ∧
+    (∀ (z : Z4) (S : Finset Z4), ∑ z' ∈ S, |Gk (z - z')| ≤ 16) ∧
+    Tf (Gconv y0) = ⇑y0 ∧
+    (Summable (fun z => |Gconv y0 z|) ∧ ∑' z, |Gconv y0 z| ≤ 16) ∧
+    (Summable (fun z => Gconv y0 z ^ 2) ∧ ∑' z, Gconv y0 z ^ 2 ≤ 256) := by
+  obtain ⟨h1, h2⟩ := Gconv_l1 y0
+  obtain ⟨h3, h4⟩ := Gconv_l2 y0
+  rw [y0_abs_sum, mul_one] at h2
+  rw [y0_sq_sum, mul_one] at h4
+  norm_num at h4
+  exact ⟨tau_gk, hasSum_abs_gk, Tf_Gk, abs_Gk, sum_abs_Gk_sub_le, sum_abs_Gk_sub_le',
+    Tf_Gconv y0, ⟨h1, h2⟩, ⟨h3, h4⟩⟩
+
+/-- **Witness for the `ℓ¹` Fatou bound and for `summable_sq_of_summable_abs`.** The kernels
+`(1 − (n + 1)⁻¹) g` converge pointwise to `g` and have every finite window of `ℓ¹` mass at most `2`; hence
+`∑' |g| ≤ 2` and `∑' g² ≤ 4`. -/
+theorem example_fatou_l1 :
+    (∀ i : ℤ, Tendsto (fun n : ℕ => (1 - 1 / ((n : ℝ) + 1)) * gk i) atTop (𝓝 (gk i))) ∧
+    (∀ F : Finset ℤ, ∀ᶠ n : ℕ in atTop, ∑ i ∈ F, |(1 - 1 / ((n : ℝ) + 1)) * gk i| ≤ 2) ∧
+    ((∀ F : Finset ℤ, ∑ i ∈ F, |gk i| ≤ 2) ∧ Summable (fun i => |gk i|) ∧ ∑' i, |gk i| ≤ 2) ∧
+    (Summable (fun i => gk i ^ 2) ∧ ∑' i, gk i ^ 2 ≤ 4) := by
+  have hconv : ∀ i : ℤ, Tendsto (fun n : ℕ => (1 - 1 / ((n : ℝ) + 1)) * gk i) atTop (𝓝 (gk i)) := by
+    intro i
+    have h := (tendsto_const_nhds (x := (1 : ℝ))).sub (tendsto_one_div_add_atTop_nhds_zero_nat (𝕜 := ℝ))
+    simpa using h.mul_const (gk i)
+  have hB : ∀ F : Finset ℤ, ∀ᶠ n : ℕ in atTop, ∑ i ∈ F, |(1 - 1 / ((n : ℝ) + 1)) * gk i| ≤ 2 := by
+    intro F
+    refine Eventually.of_forall fun n => ?_
+    have hk : (0 : ℝ) < (n : ℝ) + 1 := by positivity
+    have h0 : 0 ≤ 1 - 1 / ((n : ℝ) + 1) := by
+      rw [sub_nonneg, div_le_one hk]
+      have := Nat.cast_nonneg (α := ℝ) n
+      linarith
+    have h1 : 1 - 1 / ((n : ℝ) + 1) ≤ 1 := by
+      have : 0 ≤ 1 / ((n : ℝ) + 1) := by positivity
+      linarith
+    calc ∑ i ∈ F, |(1 - 1 / ((n : ℝ) + 1)) * gk i| ≤ ∑ i ∈ F, |gk i| := by
+          refine Finset.sum_le_sum fun i _ => ?_
+          rw [abs_mul, abs_of_nonneg h0]
+          exact mul_le_of_le_one_left (abs_nonneg _) h1
+      _ ≤ 2 := sum_abs_gk_le F
+  have hl := l1_le_of_tendsto hconv 2 hB
+  obtain ⟨hs2, hle2⟩ := summable_sq_of_summable_abs hl.2.1
+  refine ⟨hconv, hB, hl, hs2, hle2.trans ?_⟩
+  rw [hasSum_abs_gk.tsum_eq]
+  norm_num
+
+/-- **Witness for `recovery_of_lift`.** In `ℝ × ℝ` with `M` the first projection: `e j = ((j + 1)⁻¹, 1) →
+(0, 1)`, `M (0, 1) = 0`, and `c j = ((j + 1)⁻¹, 0)` has `M (c j) = M (e j)` and `‖c j‖ ≤ 1 · ‖M (e j)‖`;
+then `e j − c j = (0, 1)` lies in `ker M` and converges to `(0, 1)`. -/
+theorem example_recovery :
+    Tendsto (fun j : ℕ => ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ))) atTop (𝓝 ((0 : ℝ), (1 : ℝ))) ∧
+    ContinuousLinearMap.fst ℝ ℝ ℝ ((0 : ℝ), (1 : ℝ)) = 0 ∧
+    (∀ j : ℕ, ContinuousLinearMap.fst ℝ ℝ ℝ ((1 : ℝ) / ((j : ℝ) + 1), (0 : ℝ)) =
+      ContinuousLinearMap.fst ℝ ℝ ℝ ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ))) ∧
+    (∀ j : ℕ, ‖((1 : ℝ) / ((j : ℝ) + 1), (0 : ℝ))‖ ≤
+      1 * ‖ContinuousLinearMap.fst ℝ ℝ ℝ ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ))‖) ∧
+    ((∀ j : ℕ, ContinuousLinearMap.fst ℝ ℝ ℝ
+        (((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ)) - ((1 : ℝ) / ((j : ℝ) + 1), (0 : ℝ))) = 0) ∧
+      Tendsto (fun j : ℕ => ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ)) - ((1 : ℝ) / ((j : ℝ) + 1), (0 : ℝ)))
+        atTop (𝓝 ((0 : ℝ), (1 : ℝ)))) := by
+  have he : Tendsto (fun j : ℕ => ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ))) atTop (𝓝 ((0 : ℝ), (1 : ℝ))) :=
+    (tendsto_one_div_add_atTop_nhds_zero_nat (𝕜 := ℝ)).prodMk_nhds tendsto_const_nhds
+  have hM0 : ContinuousLinearMap.fst ℝ ℝ ℝ ((0 : ℝ), (1 : ℝ)) = 0 := rfl
+  have hMc : ∀ j : ℕ, ContinuousLinearMap.fst ℝ ℝ ℝ ((1 : ℝ) / ((j : ℝ) + 1), (0 : ℝ)) =
+      ContinuousLinearMap.fst ℝ ℝ ℝ ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ)) := fun j => rfl
+  have hc : ∀ j : ℕ, ‖((1 : ℝ) / ((j : ℝ) + 1), (0 : ℝ))‖ ≤
+      1 * ‖ContinuousLinearMap.fst ℝ ℝ ℝ ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ))‖ := fun j => by
+    simp [Prod.norm_def]
+  exact ⟨he, hM0, hMc, hc, recovery_of_lift (ContinuousLinearMap.fst ℝ ℝ ℝ) 1
+    (fun j : ℕ => ((1 : ℝ) / ((j : ℝ) + 1), (1 : ℝ)))
+    (fun j : ℕ => ((1 : ℝ) / ((j : ℝ) + 1), (0 : ℝ))) _ he hM0 hMc hc⟩
+
+/-- **Witness for §1.** Block averages read only their block; the composite of the block averages with
+the difference operator is the composite of their actions, and its output index `w` reads only the
+fine sites `2w, 2w + 1, 2w + 2`. -/
+theorem example_locality :
+    (∀ (k : ℤ) (f g : ℤ → ℝ), (∀ i ∈ blockAvg.supp k, f i = g i) →
+      blockAvg.apply f k = blockAvg.apply g k) ∧
+    (∀ f : ℤ → ℝ, (blockAvg.comp diffOp).apply f = blockAvg.apply (diffOp.apply f)) ∧
+    (∀ w i : ℤ, i ∈ (blockAvg.comp diffOp).supp w → 2 * w ≤ i ∧ i ≤ 2 * w + 2) := by
+  refine ⟨fun k f g h => blockAvg.apply_congr k h, fun f => LocalOp.comp_apply _ _ f, ?_⟩
+  intro w i hi
+  simp only [LocalOp.comp, blockAvg, diffOp, Finset.mem_biUnion, Finset.mem_insert,
+    Finset.mem_singleton] at hi
+  obtain ⟨a, ha, hia⟩ := hi
+  omega
+
+end Example
+
+end
+
+end LemmaJZ4
+
+end Part16_LemmaJZ4
+end Part16_JZ4
+
+/-! # Part 17: composition loss on Pauli transfer matrices -/
+section Part17_PauliComposition
+
+/-!
+# Composition loss on Pauli transfer matrices: worked qubit examples
+
+This file gives a kernel-checked, physically meaningful instance of a proof-method phenomenon:
+an error bound for a composite linear map that is built by chaining one site-additive (weighted
+`ℓ¹`) estimate per step can be much weaker than the same kind of estimate made once for the
+composite map ("per-step additive chaining loses, the one-shot norm does not").  When every step
+maps each coordinate to a multiple of a single coordinate (as Clifford gates and Pauli noise do on
+Pauli coordinates), nothing is lost.
+
+## Setting
+
+A channel `Φ` on `n` qubits acts on the Pauli coordinates `a_P = Tr(P ρ)` of a state (or of any
+operator) through its Pauli transfer matrix (PTM) `T_{PQ} = Tr(P Φ(Q)) / 2ⁿ`, so that `a ↦ T a`.
+An observable `O = Σ_P c_P P` has expectation `Tr(O ρ) = ⟨c, a⟩`.  For one qubit the Pauli labels
+are `0 = I`, `1 = X`, `2 = Y`, `3 = Z` (type `Fin 4`); for two qubits they are pairs of such labels.
+
+A circuit of `n` channels is a sequence `R : ℕ → Matrix ι ι ℝ` indexed **from the end**: `R 0` is
+the last channel and `R (n - 1)` the first.
+
+* `run R δ n a`: starting from `a`, apply `R (n-1)`, add the defect `δ (n-1)`, apply `R (n-2)`, add
+  `δ (n-2)`, …, apply `R 0`, add `δ 0`.  The defect `δ k` is injected with `k` channels still to
+  come; there is no defect before the first channel.
+* `prop R k = R 0 ⋯ R (k-1)` carries a defect injected with `k` channels to come to the end.
+* `heis R c k = (prop R k)ᵀ c` (Heisenberg picture), computed by the backward recursion
+  `g₀ = c`, `g_{k+1} = (R k)ᵀ g_k` (`heis_eq`).  In forward time this is `g_{t-1} = T_tᵀ g_t`.
+* The **box model**: `|δ k P| ≤ b k P` for all `k` and `P` (`InBox`).  Taking `b k I = 0` forces
+  trace-preserving defects.
+* `shift R c a δ n` is the change of the expectation of `O` at the end caused by the defects.
+
+## The three bounds
+
+* **Exact worst case** `exactBound = Σ_{k<n} ⟨b_k, |g_k|⟩`: by linearity
+  `shift = Σ_{k<n} ⟨g_k, δ_k⟩` (`shift_eq`), so `|shift| ≤ exactBound` on the box, with equality for
+  the sign witness `δ_k = b_k ∘ sign(g_k)` (`isGreatest_abs_shift`).
+* **One-shot weights** `oneShot R c k = |prop R k|ᵀ |c|`, one site-additive estimate for the whole
+  composite `prop R k`.  By the minimal admissible weight lemma ("Lemma W", restated and proved
+  here as `admissible_iff`), these are the least weights `μ` with
+  `d_{|c|}(M z, M z') ≤ d_μ(z, z')` for `M = prop R k`, where `d_λ(x, x') = Σ_P λ_P |x_P − x'_P|`
+  (`oneShot_isLeast`).
+* **Stepwise chain** `stepW R c`: `w₀ = |c|`, `w_{k+1} = |R k|ᵀ w_k`, one admissible site-additive
+  estimate per channel.  It is admissible at every step and is the least such chain
+  (`stepW_admissible`, `stepW_le`); it is the minimal additive chain `|R_{k−1}|ᵀ ⋯ |R_0|ᵀ λ⁽⁰⁾`
+  with the initial weight `λ⁽⁰⁾ = |c|`, and every per-step admissible chain gives a bound at least
+  as large (`stepBound_le_chain`).
+
+Always `exactBound ≤ oneShotBound ≤ stepBound` (`exactBound_le_oneShotBound`,
+`oneShotBound_le_stepBound`).  For an observable that is a single Pauli string the first
+inequality is an equality (`oneShotBound_single`); if every column of every PTM has at most one
+nonzero entry, all three bounds coincide (`no_loss_of_singleEntryColumns`).
+
+## Main results on the examples
+
+All budgets are `1/1000` per step on every non-identity Pauli coordinate (`0` on the identity).
+
+* **Rotation echo** (one qubit, `|0⟩`, six pairs `R_Y(+θ), R_Y(−θ)` with `cos θ = 3/5`,
+  `sin θ = 4/5`, observable `Z`), `echo_summary`:
+  - the echo pair is the identity (`RYp_mul_RYm`, `RYm_mul_RYp`) and the ideal expectation is `1`
+    (`echo_ideal`);
+  - exact worst case `= 9/625`, attained (`echo_exactBound_value`, `echo_worst_case`), with the
+    explicit constant witness `δ_k = (0, 1/1000, 1/1000, 1/1000)`, checked by an exact forward
+    simulation of the perturbed state (`echo_run_pairs`, `echo_witness`);
+  - one-shot bound `= 9/625` (`echo_oneShotBound_value`);
+  - stepwise chain `= 849821661/6103515625` (`echo_stepBound_value`): the stepwise weights grow
+    by exactly `7/5 = |cos θ| + |sin θ|` per channel (`echo_step_term`);
+  - loss ratio `= 94424629/9765625 > 9` (`echo_ratio`, `echo_ratio_gt_nine`), for every budget
+    `β ≠ 0` (`echo_ratio_any`).
+* **Clifford echo** (the same circuit with `cos = 0`, `sin = ±1`, i.e. `R_Y(±π/2)`): exact worst
+  case `=` one-shot bound `=` stepwise chain `= 3/250`, ratio `1` (`cliffordEcho_bounds`,
+  `cliffordEcho_ratio`, `cliffordEcho_worst_case`).
+* **Bell pair with Pauli noise** (two qubits, `|00⟩`, `H` on qubit 0, `CNOT`, depolarizing noise
+  `1/50` on qubit 0, Pauli noise `(p_X, p_Y, p_Z) = (1/100, 0, 1/40)` on qubit 1, `S` on qubit 1,
+  `CZ`, observable `Z ⊗ Z`), `bell_summary`:
+  - ideal expectation `2401/2500` (`bell_ideal`);
+  - exact worst case `=` one-shot bound `=` stepwise chain `= 461/78125`, ratio `1`
+    (`bell_worst_case`, `bell_bounds`, `bell_ratio`).
+* **Applications of the general results** (section 6): every result with hypotheses or
+  parameters that the results above do not already use is applied at least once to the data of
+  the examples, with all of its hypotheses discharged:
+  - the ordering `exactBound ≤ oneShotBound ≤ stepBound` for the rotation echo and the Bell
+    circuit, obtained from the general inequalities (`echo_bounds_ordered`,
+    `bell_bounds_ordered`);
+  - for the composite of the last eleven echo channels with `Z` at the end, the least admissible
+    weights are `(4/5) X + (3/5) Z`; `X + Z` is admissible and `|Z|` is not
+    (`echo_oneShot_isLeast`, `echo_admissible_iff`);
+  - the stepwise chain is admissible at the last and the first echo channel and controls the
+    composite of the last eleven channels (`echo_stepW_admissible`, `echo_addDist_prop_le`);
+  - the uniform chain `(7/5)ᵏ (X + Z)` is admissible at every echo channel; it dominates the
+    stepwise chain and bounds the stepwise bound by `1699643322/6103515625`, twice its value
+    (`echo_uniform_chain`);
+  - the shift of `⟨Z⟩` in the echo is at most the `|Z|`-weighted distance of the perturbed and
+    ideal final states (`echo_shift_le_addDist`); the loss ratio at the budget `1/100` is again
+    `94424629/9765625` (`echo_ratio_one_percent`); and with no channel nothing moves
+    (`echo_base_cases`).
+
+## Scope
+
+This is a worked example of a proof-method phenomenon on single-qubit channels, with one two-qubit
+Clifford circuit as a no-loss contrast.  It says nothing about the Yang–Mills measure.  The
+estimates (D) (the cube estimate `D(n, α)`) and (E) (the existence of a nontrivial continuum limit
+satisfying the Osterwalder–Schrader axioms with a gap in physical units) remain open, and so does
+the mass gap; nothing here addresses them.
+
+## Not formalised here
+
+* The PTM entries are entered as data from the standard formulas (the rotation `R_Y`, the Clifford
+  conjugation tables, Pauli-diagonal noise); their derivation from the unitaries and Kraus
+  operators is not formalised.
+* The box model constrains Pauli coordinates only; a worst-case defect need not keep the state
+  physical (in the rotation echo the perturbed expectation of `Z` is `634/625 > 1`).
+* The file imports Mathlib only.  It contains no `sorry`, no `admit`, no `axiom` declarations, no
+  `native_decide` and no `set_option`.
+-/
+
+namespace PauliComposition
+
+open Finset Matrix
+
+noncomputable section
+
+/-! ## 1. Site-additive weights at one step (the minimal admissible weight lemma) -/
+
+section OneStep
+
+variable {κ ι : Type*} [Fintype κ] [Fintype ι]
+
+/-- The entrywise absolute value `|v|` of a vector. -/
+def absV (v : ι → ℝ) : ι → ℝ := fun i => |v i|
+
+omit [Fintype ι] in
+/-- `|v|_i = |v_i|`. -/
+@[simp] theorem absV_apply (v : ι → ℝ) (i : ι) : absV v i = |v i| := rfl
+
+omit [Fintype ι] in
+/-- `|v| ≥ 0`. -/
+theorem absV_nonneg (v : ι → ℝ) : 0 ≤ absV v := fun i => abs_nonneg (v i)
+
+/-- The site-additive (weighted `ℓ¹`) distance `d_λ(x, x') = Σ_i λ_i |x_i − x'_i|`. -/
+def addDist (lam x x' : κ → ℝ) : ℝ := ∑ i, lam i * |x i - x' i|
+
+/-- **Admissibility.** `d_μ` is admissible for `d_λ` through the linear map `M`:
+`d_λ(M z, M z') ≤ d_μ(z, z')` for all `z, z'`. -/
+def Admissible (M : Matrix κ ι ℝ) (lam : κ → ℝ) (mu : ι → ℝ) : Prop :=
+  ∀ z z' : ι → ℝ, addDist lam (M *ᵥ z) (M *ᵥ z') ≤ addDist mu z z'
+
+omit [Fintype ι] in
+/-- `(|M|ᵀ λ)_j = Σ_i |M_{ij}| λ_i`. -/
+theorem absT_mulVec_apply (M : Matrix κ ι ℝ) (lam : κ → ℝ) (j : ι) :
+    ((M.map abs)ᵀ *ᵥ lam) j = ∑ i, |M i j| * lam i := by
+  simp [Matrix.mulVec, dotProduct]
+
+omit [Fintype ι] in
+/-- `(Mᵀ v)_j = Σ_i M_{ij} v_i`. -/
+theorem transpose_mulVec_apply (M : Matrix κ ι ℝ) (v : κ → ℝ) (j : ι) :
+    (Mᵀ *ᵥ v) j = ∑ i, M i j * v i := by
+  simp [Matrix.mulVec, dotProduct]
+
+omit [Fintype κ] in
+/-- `M e_j` is the `j`-th column of `M`. -/
+theorem mulVec_single_one_eq [DecidableEq ι] (M : Matrix κ ι ℝ) (j : ι) :
+    M *ᵥ Pi.single j 1 = fun i => M i j := by
+  ext i
+  simp [Matrix.mulVec, dotProduct, Pi.single_apply]
+
+/-- `d_λ(e_j, 0) = λ_j`. -/
+theorem addDist_single_zero [DecidableEq κ] (lam : κ → ℝ) (j : κ) :
+    addDist lam (Pi.single j 1) 0 = lam j := by
+  unfold addDist
+  rw [Finset.sum_eq_single j]
+  · simp
+  · intro b _ hb
+    simp [hb]
+  · intro h
+    exact absurd (Finset.mem_univ j) h
+
+/-- `d_λ(M e_j, M 0) = (|M|ᵀ λ)_j`. -/
+theorem addDist_single [DecidableEq ι] (M : Matrix κ ι ℝ) (lam : κ → ℝ) (j : ι) :
+    addDist lam (M *ᵥ Pi.single j 1) (M *ᵥ 0) = ((M.map abs)ᵀ *ᵥ lam) j := by
+  rw [mulVec_single_one_eq, Matrix.mulVec_zero, absT_mulVec_apply]
+  simp [addDist, mul_comm]
+
+/-- **Minimal admissible weights, necessity.** If `d_μ` is admissible for `d_λ` through `M`, then
+`μ ≥ |M|ᵀ λ` entrywise (tested on single-coordinate moves). -/
+theorem weight_le_of_admissible {M : Matrix κ ι ℝ} {lam : κ → ℝ} {mu : ι → ℝ}
+    (h : Admissible M lam mu) : (M.map abs)ᵀ *ᵥ lam ≤ mu := by
+  classical
+  intro j
+  have hj := h (Pi.single j 1) 0
+  rwa [addDist_single, addDist_single_zero] at hj
+
+/-- **Minimal admissible weights, sufficiency.** If `λ ≥ 0` and `μ ≥ |M|ᵀ λ` entrywise, then
+`d_μ` is admissible for `d_λ` through `M` (triangle inequality). -/
+theorem admissible_of_weight_le {M : Matrix κ ι ℝ} {lam : κ → ℝ} {mu : ι → ℝ}
+    (hlam : 0 ≤ lam) (h : (M.map abs)ᵀ *ᵥ lam ≤ mu) : Admissible M lam mu := by
+  intro z z'
+  have step : ∀ i, lam i * |(M *ᵥ z) i - (M *ᵥ z') i|
+      ≤ ∑ j, lam i * |M i j| * |z j - z' j| := by
+    intro i
+    have e : (M *ᵥ z) i - (M *ᵥ z') i = ∑ j, M i j * (z j - z' j) := by
+      simp [Matrix.mulVec, dotProduct, mul_sub, Finset.sum_sub_distrib]
+    rw [e]
+    calc lam i * |∑ j, M i j * (z j - z' j)|
+        ≤ lam i * ∑ j, |M i j * (z j - z' j)| :=
+          mul_le_mul_of_nonneg_left (Finset.abs_sum_le_sum_abs _ _) (hlam i)
+      _ = ∑ j, lam i * |M i j| * |z j - z' j| := by
+          rw [Finset.mul_sum]
+          refine Finset.sum_congr rfl fun j _ => ?_
+          rw [abs_mul]
+          ring
+  calc addDist lam (M *ᵥ z) (M *ᵥ z')
+      ≤ ∑ i, ∑ j, lam i * |M i j| * |z j - z' j| := Finset.sum_le_sum fun i _ => step i
+    _ = ∑ j, ((M.map abs)ᵀ *ᵥ lam) j * |z j - z' j| := by
+        rw [Finset.sum_comm]
+        refine Finset.sum_congr rfl fun j _ => ?_
+        rw [absT_mulVec_apply, Finset.sum_mul]
+        refine Finset.sum_congr rfl fun i _ => ?_
+        ring
+    _ ≤ addDist mu z z' :=
+        Finset.sum_le_sum fun j _ => mul_le_mul_of_nonneg_right (h j) (abs_nonneg _)
+
+/-- **Minimal admissible weight lemma ("Lemma W").** For `λ ≥ 0`, `d_μ` is admissible for `d_λ`
+through `M` iff `μ ≥ |M|ᵀ λ` entrywise. -/
+theorem admissible_iff {M : Matrix κ ι ℝ} {lam : κ → ℝ} {mu : ι → ℝ} (hlam : 0 ≤ lam) :
+    Admissible M lam mu ↔ (M.map abs)ᵀ *ᵥ lam ≤ mu :=
+  ⟨weight_le_of_admissible, admissible_of_weight_le hlam⟩
+
+/-- For `λ ≥ 0`, `|M|ᵀ λ` is the least admissible weight vector. -/
+theorem isLeast_admissible {M : Matrix κ ι ℝ} {lam : κ → ℝ} (hlam : 0 ≤ lam) :
+    IsLeast {mu | Admissible M lam mu} ((M.map abs)ᵀ *ᵥ lam) :=
+  ⟨admissible_of_weight_le hlam le_rfl, fun _ hmu => weight_le_of_admissible hmu⟩
+
+omit [Fintype ι] in
+/-- `|M|ᵀ` is monotone. -/
+theorem absT_mulVec_mono (M : Matrix κ ι ℝ) {v w : κ → ℝ} (h : v ≤ w) :
+    (M.map abs)ᵀ *ᵥ v ≤ (M.map abs)ᵀ *ᵥ w := by
+  intro j
+  rw [absT_mulVec_apply, absT_mulVec_apply]
+  exact Finset.sum_le_sum fun i _ => mul_le_mul_of_nonneg_left (h i) (abs_nonneg _)
+
+omit [Fintype ι] in
+/-- `v ≥ 0 → |M|ᵀ v ≥ 0`. -/
+theorem absT_mulVec_nonneg (M : Matrix κ ι ℝ) {v : κ → ℝ} (h : 0 ≤ v) :
+    0 ≤ (M.map abs)ᵀ *ᵥ v := by
+  intro j
+  rw [Pi.zero_apply, absT_mulVec_apply]
+  exact Finset.sum_nonneg fun i _ => mul_nonneg (abs_nonneg _) (h i)
+
+omit [Fintype ι] in
+/-- `|Mᵀ v| ≤ |M|ᵀ |v|` entrywise. -/
+theorem absV_transpose_mulVec_le (M : Matrix κ ι ℝ) (v : κ → ℝ) :
+    absV (Mᵀ *ᵥ v) ≤ (M.map abs)ᵀ *ᵥ absV v := by
+  intro j
+  rw [absV_apply, absT_mulVec_apply, transpose_mulVec_apply]
+  refine (Finset.abs_sum_le_sum_abs _ _).trans (le_of_eq ?_)
+  refine Finset.sum_congr rfl fun i _ => ?_
+  rw [abs_mul, absV_apply]
+
+/-- **The observable is controlled by its own weights**: `|⟨c, x⟩ − ⟨c, x'⟩| ≤ d_{|c|}(x, x')`. -/
+theorem abs_dotProduct_sub_le (c x x' : κ → ℝ) :
+    |c ⬝ᵥ x - c ⬝ᵥ x'| ≤ addDist (absV c) x x' := by
+  rw [← dotProduct_sub]
+  refine (Finset.abs_sum_le_sum_abs _ _).trans (le_of_eq ?_)
+  refine Finset.sum_congr rfl fun i _ => ?_
+  rw [Pi.sub_apply, abs_mul, absV_apply]
+
+/-- If at most one term of a finite sum is nonzero, `|Σ f| = Σ |f|`. -/
+theorem abs_sum_eq_sum_abs_of_subsingleton {f : κ → ℝ}
+    (h : ∀ l l', f l ≠ 0 → f l' ≠ 0 → l = l') : |∑ l, f l| = ∑ l, |f l| := by
+  by_cases hex : ∃ l, f l ≠ 0
+  · obtain ⟨l0, hl0⟩ := hex
+    have hz : ∀ l, l ≠ l0 → f l = 0 := fun l hl => by
+      by_contra hne
+      exact hl (h l l0 hne hl0)
+    rw [Finset.sum_eq_single l0 (fun l _ hl => hz l hl) (fun h' => absurd (mem_univ l0) h'),
+      Finset.sum_eq_single l0 (fun l _ hl => by rw [hz l hl, abs_zero])
+        (fun h' => absurd (mem_univ l0) h')]
+  · have hz : ∀ l, f l = 0 := fun l => by
+      by_contra hne
+      exact hex ⟨l, hne⟩
+    simp [hz]
+
+end OneStep
+
+/-! ## 2. Circuits: Heisenberg weights, one-shot weights and the stepwise chain -/
+
+section Chain
+
+variable {ι : Type*} [Fintype ι] [DecidableEq ι] (R : ℕ → Matrix ι ι ℝ)
+
+/-- The propagator `prop R k = R 0 * R 1 * ⋯ * R (k-1)` of the last `k` channels. -/
+def prop : ℕ → Matrix ι ι ℝ
+  | 0 => 1
+  | k + 1 => prop k * R k
+
+/-- Heisenberg weights: `g₀ = c`, `g_{k+1} = (R k)ᵀ g_k`. -/
+def heis (c : ι → ℝ) : ℕ → ι → ℝ
+  | 0 => c
+  | k + 1 => (R k)ᵀ *ᵥ heis c k
+
+/-- One-shot weights `|prop R k|ᵀ |c|` (one site-additive estimate for the composite). -/
+def oneShot (c : ι → ℝ) (k : ℕ) : ι → ℝ := ((prop R k).map abs)ᵀ *ᵥ absV c
+
+/-- Stepwise minimal chain: `w₀ = |c|`, `w_{k+1} = |R k|ᵀ w_k` (one site-additive estimate per
+channel). -/
+def stepW (c : ι → ℝ) : ℕ → ι → ℝ
+  | 0 => absV c
+  | k + 1 => ((R k).map abs)ᵀ *ᵥ stepW c k
+
+/-- Forward simulation with defects: `run R δ (n+1) a = run R δ n (R n a + δ n)`. -/
+def run (δ : ℕ → ι → ℝ) : ℕ → (ι → ℝ) → ι → ℝ
+  | 0, a => a
+  | n + 1, a => run δ n (R n *ᵥ a + δ n)
+
+/-- The change of the expectation of `c` at the end caused by the defects `δ`. -/
+def shift (c a : ι → ℝ) (δ : ℕ → ι → ℝ) (n : ℕ) : ℝ :=
+  c ⬝ᵥ run R δ n a - c ⬝ᵥ run R 0 n a
+
+/-- The box model: `|δ k i| ≤ b k i` for all `k`, `i`. -/
+def InBox (b δ : ℕ → ι → ℝ) : Prop := ∀ k i, |δ k i| ≤ b k i
+
+/-- The exact worst case `Σ_{k<n} ⟨b_k, |g_k|⟩`. -/
+def exactBound (c : ι → ℝ) (b : ℕ → ι → ℝ) (n : ℕ) : ℝ :=
+  ∑ k ∈ range n, b k ⬝ᵥ absV (heis R c k)
+
+/-- The one-shot bound `Σ_{k<n} ⟨b_k, |prop R k|ᵀ |c|⟩`. -/
+def oneShotBound (c : ι → ℝ) (b : ℕ → ι → ℝ) (n : ℕ) : ℝ :=
+  ∑ k ∈ range n, b k ⬝ᵥ oneShot R c k
+
+/-- The stepwise bound `Σ_{k<n} ⟨b_k, w_k⟩`. -/
+def stepBound (c : ι → ℝ) (b : ℕ → ι → ℝ) (n : ℕ) : ℝ :=
+  ∑ k ∈ range n, b k ⬝ᵥ stepW R c k
+
+/-- The sign witness `δ_k = b_k ∘ sign(g_k)`. -/
+def witness (c : ι → ℝ) (b : ℕ → ι → ℝ) : ℕ → ι → ℝ :=
+  fun k i => if 0 ≤ heis R c k i then b k i else -b k i
+
+/-- `prop R 0 = 1`. -/
+@[simp] theorem prop_zero : prop R 0 = 1 := rfl
+
+/-- `prop R (k+1) = prop R k * R k`. -/
+@[simp] theorem prop_succ (k : ℕ) : prop R (k + 1) = prop R k * R k := rfl
+
+omit [DecidableEq ι] in
+/-- `g₀ = c`. -/
+@[simp] theorem heis_zero (c : ι → ℝ) : heis R c 0 = c := rfl
+
+omit [DecidableEq ι] in
+/-- `g_{k+1} = (R k)ᵀ g_k`. -/
+@[simp] theorem heis_succ (c : ι → ℝ) (k : ℕ) : heis R c (k + 1) = (R k)ᵀ *ᵥ heis R c k := rfl
+
+omit [DecidableEq ι] in
+/-- `w₀ = |c|`. -/
+@[simp] theorem stepW_zero (c : ι → ℝ) : stepW R c 0 = absV c := rfl
+
+omit [DecidableEq ι] in
+/-- `w_{k+1} = |R k|ᵀ w_k`. -/
+@[simp] theorem stepW_succ (c : ι → ℝ) (k : ℕ) :
+    stepW R c (k + 1) = ((R k).map abs)ᵀ *ᵥ stepW R c k := rfl
+
+omit [DecidableEq ι] in
+/-- No channel: the state is unchanged. -/
+@[simp] theorem run_zero (δ : ℕ → ι → ℝ) (a : ι → ℝ) : run R δ 0 a = a := rfl
+
+omit [DecidableEq ι] in
+/-- The first of `n + 1` channels is `R n`, followed by the defect `δ n`. -/
+@[simp] theorem run_succ (δ : ℕ → ι → ℝ) (n : ℕ) (a : ι → ℝ) :
+    run R δ (n + 1) a = run R δ n (R n *ᵥ a + δ n) := rfl
+
+/-- The backward recursion computes `(prop R k)ᵀ c`. -/
+theorem heis_eq (c : ι → ℝ) (k : ℕ) : heis R c k = (prop R k)ᵀ *ᵥ c := by
+  induction k with
+  | zero => simp
+  | succ k ih => rw [heis_succ, ih, prop_succ, transpose_mul, mulVec_mulVec]
+
+/-- The forward simulation is affine in the defects:
+`run R δ n a = prop R n a + Σ_{k<n} prop R k δ_k`. -/
+theorem run_eq (δ : ℕ → ι → ℝ) (n : ℕ) (a : ι → ℝ) :
+    run R δ n a = prop R n *ᵥ a + ∑ k ∈ range n, prop R k *ᵥ δ k := by
+  induction n generalizing a with
+  | zero => simp
+  | succ n ih =>
+    rw [run_succ, ih, mulVec_add, mulVec_mulVec, sum_range_succ, prop_succ]
+    abel
+
+/-- **Heisenberg picture**: the ideal expectation is `⟨g_n, a⟩`. -/
+theorem expect_eq (c a : ι → ℝ) (n : ℕ) : c ⬝ᵥ run R 0 n a = heis R c n ⬝ᵥ a := by
+  rw [run_eq, heis_eq]
+  simp [dotProduct_mulVec, mulVec_transpose]
+
+/-- **Linear response**: `shift = Σ_{k<n} ⟨g_k, δ_k⟩`. -/
+theorem shift_eq (c a : ι → ℝ) (δ : ℕ → ι → ℝ) (n : ℕ) :
+    shift R c a δ n = ∑ k ∈ range n, heis R c k ⬝ᵥ δ k := by
+  have h0 : run R 0 n a = prop R n *ᵥ a := by simp [run_eq]
+  rw [shift, h0, run_eq, dotProduct_add, add_sub_cancel_left, dotProduct_sum]
+  refine sum_congr rfl fun k _ => ?_
+  rw [heis_eq, dotProduct_mulVec, mulVec_transpose]
+
+/-- `|g_k| ≤ |prop R k|ᵀ |c|`. -/
+theorem absV_heis_le_oneShot (c : ι → ℝ) (k : ℕ) : absV (heis R c k) ≤ oneShot R c k := by
+  rw [heis_eq]
+  exact absV_transpose_mulVec_le _ _
+
+/-- With no channel to come, the one-shot weights are `|c|`. -/
+theorem oneShot_zero (c : ι → ℝ) : oneShot R c 0 = absV c := by
+  rw [oneShot, prop_zero, Matrix.map_one _ abs_zero abs_one, transpose_one, one_mulVec]
+
+/-- One more channel: `|prop R k * R k|ᵀ |c| ≤ |R k|ᵀ |prop R k|ᵀ |c|`. -/
+theorem oneShot_succ_le (c : ι → ℝ) (k : ℕ) :
+    oneShot R c (k + 1) ≤ ((R k).map abs)ᵀ *ᵥ oneShot R c k := by
+  intro j
+  simp only [oneShot, absT_mulVec_apply, prop_succ, absV_apply]
+  calc ∑ i, |(prop R k * R k) i j| * |c i|
+      ≤ ∑ i, (∑ l, |prop R k i l| * |R k l j|) * |c i| := by
+        refine sum_le_sum fun i _ => mul_le_mul_of_nonneg_right ?_ (abs_nonneg _)
+        rw [mul_apply]
+        exact (abs_sum_le_sum_abs _ _).trans
+          (le_of_eq (sum_congr rfl fun l _ => abs_mul _ _))
+    _ = ∑ l, ∑ i, |prop R k i l| * |R k l j| * |c i| := by
+        simp_rw [sum_mul]
+        exact sum_comm
+    _ = ∑ l, |R k l j| * ∑ i, |prop R k i l| * |c i| := by
+        refine sum_congr rfl fun l _ => ?_
+        rw [mul_sum]
+        refine sum_congr rfl fun i _ => ?_
+        ring
+
+/-- **One-shot weights never exceed the stepwise chain**: `|prop R k|ᵀ |c| ≤ w_k`. -/
+theorem oneShot_le_stepW (c : ι → ℝ) (k : ℕ) : oneShot R c k ≤ stepW R c k := by
+  induction k with
+  | zero => rw [oneShot_zero, stepW_zero]
+  | succ k ih =>
+    rw [stepW_succ]
+    exact (oneShot_succ_le R c k).trans (absT_mulVec_mono _ ih)
+
+/-- The one-shot weights are the least admissible weights for the composite `prop R k` with the
+observable weights `|c|` at the end. -/
+theorem oneShot_isLeast (c : ι → ℝ) (k : ℕ) :
+    IsLeast {mu | Admissible (prop R k) (absV c) mu} (oneShot R c k) :=
+  isLeast_admissible (absV_nonneg c)
+
+omit [DecidableEq ι] in
+/-- The stepwise weights are nonnegative. -/
+theorem stepW_nonneg (c : ι → ℝ) (k : ℕ) : 0 ≤ stepW R c k := by
+  induction k with
+  | zero => exact absV_nonneg c
+  | succ k ih => rw [stepW_succ]; exact absT_mulVec_nonneg _ ih
+
+omit [DecidableEq ι] in
+/-- The stepwise chain is admissible at every step. -/
+theorem stepW_admissible (c : ι → ℝ) (k : ℕ) :
+    Admissible (R k) (stepW R c k) (stepW R c (k + 1)) :=
+  admissible_of_weight_le (stepW_nonneg R c k) le_rfl
+
+omit [DecidableEq ι] in
+/-- **The stepwise chain is the least admissible chain.**  Every chain `λ` with `λ₀ ≥ |c|` that
+is admissible at the steps `i < k` has `λ_k ≥ w_k`. -/
+theorem stepW_le (c : ι → ℝ) (lam : ℕ → ι → ℝ) (h0 : absV c ≤ lam 0) (k : ℕ)
+    (hadm : ∀ i < k, Admissible (R i) (lam i) (lam (i + 1))) : stepW R c k ≤ lam k := by
+  induction k with
+  | zero => exact h0
+  | succ k ih =>
+    rw [stepW_succ]
+    exact le_trans (absT_mulVec_mono _ (ih fun i hi => hadm i (Nat.lt_succ_of_lt hi)))
+      (weight_le_of_admissible (hadm k (Nat.lt_succ_self k)))
+
+/-- **Chaining**: a chain admissible at the steps `i < k` controls the composite,
+`d_{λ₀}(prop R k z, prop R k z') ≤ d_{λ_k}(z, z')`. -/
+theorem addDist_prop_le (lam : ℕ → ι → ℝ) (k : ℕ)
+    (hadm : ∀ i < k, Admissible (R i) (lam i) (lam (i + 1))) (z z' : ι → ℝ) :
+    addDist (lam 0) (prop R k *ᵥ z) (prop R k *ᵥ z') ≤ addDist (lam k) z z' := by
+  induction k generalizing z z' with
+  | zero => simp
+  | succ k ih =>
+    rw [prop_succ, ← mulVec_mulVec, ← mulVec_mulVec]
+    exact (ih (fun i hi => hadm i (Nat.lt_succ_of_lt hi)) _ _).trans
+      (hadm k (Nat.lt_succ_self k) z z')
+
+omit [DecidableEq ι] in
+/-- `exactBound ≥ 0` for a nonnegative budget. -/
+theorem exactBound_nonneg (c : ι → ℝ) (b : ℕ → ι → ℝ) (hb : ∀ k i, 0 ≤ b k i) (n : ℕ) :
+    0 ≤ exactBound R c b n :=
+  sum_nonneg fun k _ => sum_nonneg fun i _ => mul_nonneg (hb k i) (abs_nonneg _)
+
+omit [DecidableEq ι] in
+/-- `⟨b, v⟩ ≤ ⟨b, w⟩` for `b ≥ 0` and `v ≤ w`. -/
+theorem dotProduct_le_dotProduct_of_nonneg {b v w : ι → ℝ} (hb : ∀ i, 0 ≤ b i) (h : v ≤ w) :
+    b ⬝ᵥ v ≤ b ⬝ᵥ w :=
+  sum_le_sum fun i _ => mul_le_mul_of_nonneg_left (h i) (hb i)
+
+/-- `exactBound ≤ oneShotBound`. -/
+theorem exactBound_le_oneShotBound (c : ι → ℝ) (b : ℕ → ι → ℝ) (hb : ∀ k i, 0 ≤ b k i)
+    (n : ℕ) : exactBound R c b n ≤ oneShotBound R c b n :=
+  sum_le_sum fun k _ => dotProduct_le_dotProduct_of_nonneg (hb k) (absV_heis_le_oneShot R c k)
+
+/-- `oneShotBound ≤ stepBound`. -/
+theorem oneShotBound_le_stepBound (c : ι → ℝ) (b : ℕ → ι → ℝ) (hb : ∀ k i, 0 ≤ b k i)
+    (n : ℕ) : oneShotBound R c b n ≤ stepBound R c b n :=
+  sum_le_sum fun k _ => dotProduct_le_dotProduct_of_nonneg (hb k) (oneShot_le_stepW R c k)
+
+omit [DecidableEq ι] in
+/-- **The stepwise chain is the best per-step additive bound**: any chain `λ` with `λ₀ ≥ |c|`
+that is admissible at every step `i < n` gives a bound `Σ_{k<n} ⟨b_k, λ_k⟩ ≥ stepBound`. -/
+theorem stepBound_le_chain (c : ι → ℝ) (b : ℕ → ι → ℝ) (hb : ∀ k i, 0 ≤ b k i)
+    (lam : ℕ → ι → ℝ) (h0 : absV c ≤ lam 0) (n : ℕ)
+    (hadm : ∀ i < n, Admissible (R i) (lam i) (lam (i + 1))) :
+    stepBound R c b n ≤ ∑ k ∈ range n, b k ⬝ᵥ lam k :=
+  sum_le_sum fun k hk => dotProduct_le_dotProduct_of_nonneg (hb k)
+    (stepW_le R c lam h0 k fun i hi => hadm i (lt_trans hi (mem_range.mp hk)))
+
+/-- On the box, `|shift| ≤ exactBound`. -/
+theorem abs_shift_le (c a : ι → ℝ) (b δ : ℕ → ι → ℝ) (n : ℕ) (hδ : InBox b δ) :
+    |shift R c a δ n| ≤ exactBound R c b n := by
+  rw [shift_eq]
+  refine (abs_sum_le_sum_abs _ _).trans (sum_le_sum fun k _ => ?_)
+  refine (abs_sum_le_sum_abs _ _).trans (sum_le_sum fun i _ => ?_)
+  rw [abs_mul, absV_apply, mul_comm]
+  exact mul_le_mul_of_nonneg_right (hδ k i) (abs_nonneg _)
+
+omit [DecidableEq ι] in
+/-- The sign witness lies in the box. -/
+theorem witness_inBox (c : ι → ℝ) (b : ℕ → ι → ℝ) (hb : ∀ k i, 0 ≤ b k i) :
+    InBox b (witness R c b) := by
+  intro k i
+  unfold witness
+  split_ifs
+  · rw [abs_of_nonneg (hb k i)]
+  · rw [abs_neg, abs_of_nonneg (hb k i)]
+
+/-- The sign witness attains the exact bound. -/
+theorem shift_witness (c a : ι → ℝ) (b : ℕ → ι → ℝ) (n : ℕ) :
+    shift R c a (witness R c b) n = exactBound R c b n := by
+  rw [shift_eq]
+  refine sum_congr rfl fun k _ => ?_
+  refine sum_congr rfl fun i _ => ?_
+  rw [absV_apply]
+  unfold witness
+  split_ifs with h
+  · rw [abs_of_nonneg h]; ring
+  · rw [abs_of_neg (not_le.mp h)]; ring
+
+/-- **The exact worst case**: on the box, `exactBound` is the largest possible `|shift|`. -/
+theorem isGreatest_abs_shift (c a : ι → ℝ) (b : ℕ → ι → ℝ) (hb : ∀ k i, 0 ≤ b k i) (n : ℕ) :
+    IsGreatest {x | ∃ δ, InBox b δ ∧ |shift R c a δ n| = x} (exactBound R c b n) := by
+  refine ⟨⟨witness R c b, witness_inBox R c b hb, ?_⟩, ?_⟩
+  · rw [shift_witness, abs_of_nonneg (exactBound_nonneg R c b hb n)]
+  · rintro x ⟨δ, hδ, rfl⟩
+    exact abs_shift_le R c a b δ n hδ
+
+/-- For an observable that is a multiple of one Pauli string, the one-shot weights are exact:
+`|prop R k|ᵀ |c| = |g_k|`. -/
+theorem oneShot_single (p : ι) (v : ℝ) (k : ℕ) :
+    oneShot R (Pi.single p v) k = absV (heis R (Pi.single p v) k) := by
+  ext j
+  rw [heis_eq, absV_apply, oneShot, absT_mulVec_apply, transpose_mulVec_apply,
+    Finset.sum_eq_single p (fun i _ hi => by simp [hi]) (fun h => absurd (mem_univ p) h),
+    Finset.sum_eq_single p (fun i _ hi => by simp [hi]) (fun h => absurd (mem_univ p) h)]
+  simp [abs_mul]
+
+/-- For a single Pauli string observable, the one-shot bound equals the exact worst case. -/
+theorem oneShotBound_single (p : ι) (v : ℝ) (b : ℕ → ι → ℝ) (n : ℕ) :
+    oneShotBound R (Pi.single p v) b n = exactBound R (Pi.single p v) b n := by
+  unfold oneShotBound exactBound
+  simp_rw [oneShot_single]
+
+/-- A matrix whose every column has at most one nonzero entry. -/
+def SingleEntryColumns (M : Matrix ι ι ℝ) : Prop :=
+  ∀ j l l', M l j ≠ 0 → M l' j ≠ 0 → l = l'
+
+omit [DecidableEq ι] in
+/-- If the channels `R i`, `i < k`, have single-entry columns, the stepwise chain is exact:
+`w_k = |g_k|`. -/
+theorem stepW_eq_of_singleEntryColumns (c : ι → ℝ) (k : ℕ)
+    (h : ∀ i < k, SingleEntryColumns (R i)) : stepW R c k = absV (heis R c k) := by
+  induction k with
+  | zero => rfl
+  | succ k ih =>
+    rw [stepW_succ, ih (fun i hi => h i (Nat.lt_succ_of_lt hi)), heis_succ]
+    ext j
+    rw [absT_mulVec_apply, absV_apply, transpose_mulVec_apply,
+      abs_sum_eq_sum_abs_of_subsingleton]
+    · refine sum_congr rfl fun l _ => ?_
+      rw [absV_apply, abs_mul]
+    · intro l l' hl hl'
+      exact h k (Nat.lt_succ_self k) j l l' (left_ne_zero_of_mul hl) (left_ne_zero_of_mul hl')
+
+/-- **No loss without mixing**: if every channel has single-entry columns (for instance Clifford
+gates and Pauli-diagonal noise on Pauli coordinates), the exact worst case, the one-shot bound and
+the stepwise bound coincide. -/
+theorem no_loss_of_singleEntryColumns (c : ι → ℝ) (b : ℕ → ι → ℝ) (n : ℕ)
+    (h : ∀ i < n, SingleEntryColumns (R i)) :
+    oneShotBound R c b n = exactBound R c b n ∧ stepBound R c b n = exactBound R c b n := by
+  have hw : ∀ k ∈ range n, stepW R c k = absV (heis R c k) := fun k hk =>
+    stepW_eq_of_singleEntryColumns R c k fun i hi => h i (lt_trans hi (mem_range.mp hk))
+  have ho : ∀ k ∈ range n, oneShot R c k = absV (heis R c k) := fun k hk =>
+    le_antisymm ((oneShot_le_stepW R c k).trans (hw k hk).le) (absV_heis_le_oneShot R c k)
+  exact ⟨sum_congr rfl fun k hk => by rw [ho k hk], sum_congr rfl fun k hk => by rw [hw k hk]⟩
+
+/-- A PTM that maps each Pauli label `j` to `σ j` times the label `π j`
+(a signed permutation for a Clifford gate, a diagonal for Pauli noise). -/
+def monoPTM (π : ι → ι) (σ : ι → ℝ) : Matrix ι ι ℝ :=
+  Matrix.of fun i j => if i = π j then σ j else 0
+
+/-- `(monoPTM π σ)ᵀ g = (j ↦ σ j g (π j))`: the Heisenberg action of a monomial PTM. -/
+theorem monoPTM_transpose_mulVec (π : ι → ι) (σ : ι → ℝ) (g : ι → ℝ) :
+    (monoPTM π σ)ᵀ *ᵥ g = fun j => σ j * g (π j) := by
+  ext j
+  rw [transpose_mulVec_apply]
+  simp [monoPTM, ite_mul]
+
+omit [Fintype ι] in
+/-- A monomial PTM has single-entry columns. -/
+theorem monoPTM_singleEntryColumns (π : ι → ι) (σ : ι → ℝ) :
+    SingleEntryColumns (monoPTM π σ) := by
+  intro j l l' hl hl'
+  have h1 : l = π j := by
+    by_contra h
+    exact hl (by simp [monoPTM, h])
+  have h2 : l' = π j := by
+    by_contra h
+    exact hl' (by simp [monoPTM, h])
+  exact h1.trans h2.symm
+
+end Chain
+
+/-! ## 3. The rotation echo: a strict composition loss -/
+
+section Echo
+
+/-- The PTM of the rotation `R_Y(θ) = exp(−iθY/2)` with `cos θ = c`, `sin θ = s`, in the basis
+`(I, X, Y, Z)`: it rotates the Bloch vector about the `Y` axis. -/
+def ptmRY (c s : ℝ) : Matrix (Fin 4) (Fin 4) ℝ :=
+  !![1, 0, 0, 0;
+     0, c, 0, s;
+     0, 0, 1, 0;
+     0, -s, 0, c]
+
+/-- `R_Y(+θ)` with `cos θ = 3/5`, `sin θ = 4/5`. -/
+def RYp : Matrix (Fin 4) (Fin 4) ℝ := ptmRY (3 / 5) (4 / 5)
+
+/-- `R_Y(−θ)` with `cos θ = 3/5`, `sin θ = 4/5`. -/
+def RYm : Matrix (Fin 4) (Fin 4) ℝ := ptmRY (3 / 5) (-(4 / 5))
+
+/-- The echo circuit, indexed from the end: the forward order is
+`R_Y(+θ), R_Y(−θ), R_Y(+θ), …, R_Y(−θ)` (twelve channels), so the channel with `k` channels after
+it is `R_Y(−θ)` for even `k` and `R_Y(+θ)` for odd `k`. -/
+def echo (k : ℕ) : Matrix (Fin 4) (Fin 4) ℝ := if k % 2 = 0 then RYm else RYp
+
+/-- The observable `Z`. -/
+def obsZ : Fin 4 → ℝ := ![0, 0, 0, 1]
+
+/-- The initial state `|0⟩` (Bloch vector `(0, 0, 1)`). -/
+def ket0 : Fin 4 → ℝ := ![1, 0, 0, 1]
+
+/-- The box: budget `β` on `X`, `Y`, `Z` after every step, `0` on `I`. -/
+def box (β : ℝ) : ℕ → Fin 4 → ℝ := fun _ => ![0, β, β, β]
+
+/-- The odd Heisenberg weight `R_Y(−θ)ᵀ Z = (4/5) X + (3/5) Z`. -/
+def gOdd : Fin 4 → ℝ := ![0, 4 / 5, 0, 3 / 5]
+
+/-- The net displacement of the state caused by one echo pair with the defect
+`δ = (0, β, β, β)` after each of its two channels: `R_Y(−θ) δ + δ`. -/
+def pairShift (β : ℝ) : Fin 4 → ℝ := ![0, 4 / 5 * β, 2 * β, 12 / 5 * β]
+
+/-- The entrywise absolute value of both rotation PTMs. -/
+def absRY : Matrix (Fin 4) (Fin 4) ℝ :=
+  !![1, 0, 0, 0;
+     0, 3 / 5, 0, 4 / 5;
+     0, 0, 1, 0;
+     0, 4 / 5, 0, 3 / 5]
+
+/-- The closed form of the stepwise weights: with `p = 7/5`, `q = −1/5`,
+`w_k = ((pᵏ − qᵏ)/2) X + ((pᵏ + qᵏ)/2) Z`. -/
+def wEcho (k : ℕ) : Fin 4 → ℝ :=
+  ![0, ((7 / 5 : ℝ) ^ k - (-1 / 5 : ℝ) ^ k) / 2, 0, ((7 / 5 : ℝ) ^ k + (-1 / 5 : ℝ) ^ k) / 2]
+
+/-- The echo pair is the identity: `R_Y(+θ) R_Y(−θ) = 1`. -/
+theorem RYp_mul_RYm : RYp * RYm = 1 := by
+  ext i j
+  fin_cases i <;> fin_cases j <;>
+    simp [RYp, RYm, ptmRY, Matrix.mul_apply, Fin.sum_univ_four, Matrix.cons_val] <;>
+    norm_num
+
+/-- `R_Y(−θ) R_Y(+θ) = 1`. -/
+theorem RYm_mul_RYp : RYm * RYp = 1 := by
+  ext i j
+  fin_cases i <;> fin_cases j <;>
+    simp [RYp, RYm, ptmRY, Matrix.mul_apply, Fin.sum_univ_four, Matrix.cons_val] <;>
+    norm_num
+
+/-- `Z` as a single Pauli string. -/
+theorem obsZ_eq_single : obsZ = Pi.single 3 1 := by
+  ext i
+  fin_cases i <;> simp [obsZ]
+
+/-- `R_Y(−θ)ᵀ Z = (4/5) X + (3/5) Z`. -/
+theorem RYm_heis : RYmᵀ *ᵥ obsZ = gOdd := by
+  ext i
+  fin_cases i <;>
+    simp [RYm, ptmRY, obsZ, gOdd, mulVec, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+
+/-- `R_Y(+θ)ᵀ ((4/5) X + (3/5) Z) = Z`. -/
+theorem RYp_heis : RYpᵀ *ᵥ gOdd = obsZ := by
+  ext i
+  fin_cases i <;>
+    simp [RYp, ptmRY, obsZ, gOdd, mulVec, dotProduct, Fin.sum_univ_four, Matrix.cons_val] <;>
+    norm_num
+
+/-- The Heisenberg weights of the echo alternate between `Z` and `(4/5) X + (3/5) Z`. -/
+theorem echo_heis (k : ℕ) : heis echo obsZ k = if k % 2 = 0 then obsZ else gOdd := by
+  induction k with
+  | zero => rfl
+  | succ k ih =>
+    rw [heis_succ, ih]
+    rcases Nat.mod_two_eq_zero_or_one k with h | h
+    · have h' : (k + 1) % 2 = 1 := by omega
+      simp only [echo, h, h', if_true, one_ne_zero, if_false]
+      exact RYm_heis
+    · have h' : (k + 1) % 2 = 0 := by omega
+      simp only [echo, h, h', if_true, one_ne_zero, if_false]
+      exact RYp_heis
+
+/-- `|R_Y(±θ)|` is the same matrix for both signs. -/
+theorem echo_map_abs (k : ℕ) : (echo k).map abs = absRY := by
+  unfold echo
+  split_ifs <;>
+  · ext i j
+    fin_cases i <;> fin_cases j <;> norm_num [RYp, RYm, ptmRY, absRY]
+
+/-- One step of the stepwise chain in closed form. -/
+theorem absRY_step (k : ℕ) : absRYᵀ *ᵥ wEcho k = wEcho (k + 1) := by
+  ext i
+  fin_cases i <;>
+    simp [absRY, wEcho, mulVec, dotProduct, Fin.sum_univ_four, Matrix.cons_val, pow_succ] <;>
+    ring
+
+/-- The stepwise weights of the echo in closed form. -/
+theorem echo_stepW (k : ℕ) : stepW echo obsZ k = wEcho k := by
+  induction k with
+  | zero =>
+    ext i
+    fin_cases i <;> norm_num [obsZ, wEcho]
+  | succ k ih => rw [stepW_succ, ih, echo_map_abs, absRY_step]
+
+/-- Each stepwise term is `β (7/5)ᵏ`: the weight grows by `7/5` per channel. -/
+theorem echo_step_term (β : ℝ) (k : ℕ) : box β k ⬝ᵥ stepW echo obsZ k = (7 / 5 : ℝ) ^ k * β := by
+  rw [echo_stepW]
+  simp [box, wEcho, dotProduct, Fin.sum_univ_four]
+  ring
+
+/-- Each exact term is `β` (even `k`) or `(7/5) β` (odd `k`). -/
+theorem echo_exact_term (β : ℝ) (k : ℕ) :
+    box β k ⬝ᵥ absV (heis echo obsZ k) = if k % 2 = 0 then β else 7 / 5 * β := by
+  rw [echo_heis]
+  split_ifs
+  · simp [box, obsZ, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+  · simp [box, gOdd, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+    norm_num
+    ring
+
+/-- The exact worst case of the echo for the budget `β`. -/
+theorem echo_exactBound (β : ℝ) : exactBound echo obsZ (box β) 12 = 72 / 5 * β := by
+  unfold exactBound
+  simp_rw [echo_exact_term]
+  norm_num [sum_range_succ]
+  ring
+
+/-- The one-shot bound of the echo for the budget `β` (equal to the exact worst case, since `Z`
+is a single Pauli string). -/
+theorem echo_oneShotBound (β : ℝ) : oneShotBound echo obsZ (box β) 12 = 72 / 5 * β := by
+  rw [obsZ_eq_single, oneShotBound_single, ← obsZ_eq_single, echo_exactBound]
+
+/-- The stepwise bound of the echo for the budget `β`: `β Σ_{k<12} (7/5)ᵏ`. -/
+theorem echo_stepBound (β : ℝ) :
+    stepBound echo obsZ (box β) 12 = (∑ k ∈ range 12, (7 / 5 : ℝ) ^ k) * β := by
+  unfold stepBound
+  simp_rw [echo_step_term]
+  rw [sum_mul]
+
+/-- The box budget is nonnegative. -/
+theorem box_nonneg {β : ℝ} (hβ : 0 ≤ β) : ∀ k i, 0 ≤ box β k i := by
+  intro k i
+  fin_cases i <;> simp [box, hβ]
+
+/-- **Exact worst case** of the echo: `9/625`, and it is attained. -/
+theorem echo_worst_case :
+    IsGreatest {x | ∃ δ, InBox (box (1 / 1000)) δ ∧ |shift echo obsZ ket0 δ 12| = x}
+      (9 / 625) := by
+  have h := isGreatest_abs_shift echo obsZ ket0 (box (1 / 1000)) (box_nonneg (by norm_num)) 12
+  rwa [echo_exactBound, show (72 / 5 : ℝ) * (1 / 1000) = 9 / 625 by norm_num] at h
+
+/-- **One-shot bound** of the echo: `9/625`. -/
+theorem echo_oneShotBound_value : oneShotBound echo obsZ (box (1 / 1000)) 12 = 9 / 625 := by
+  rw [echo_oneShotBound]
+  norm_num
+
+/-- **Stepwise chain** of the echo: `849821661/6103515625`. -/
+theorem echo_stepBound_value :
+    stepBound echo obsZ (box (1 / 1000)) 12 = 849821661 / 6103515625 := by
+  rw [echo_stepBound]
+  norm_num [sum_range_succ]
+
+/-- **Composition loss** of the echo: the ratio is `94424629/9765625`. -/
+theorem echo_ratio :
+    stepBound echo obsZ (box (1 / 1000)) 12 / oneShotBound echo obsZ (box (1 / 1000)) 12 =
+      94424629 / 9765625 := by
+  rw [echo_stepBound_value, echo_oneShotBound_value]
+  norm_num
+
+/-- The echo loses a factor greater than `9`. -/
+theorem echo_ratio_gt_nine :
+    9 < stepBound echo obsZ (box (1 / 1000)) 12 / oneShotBound echo obsZ (box (1 / 1000)) 12 := by
+  rw [echo_ratio]
+  norm_num
+
+/-- The loss ratio of the echo does not depend on the budget `β ≠ 0`. -/
+theorem echo_ratio_any {β : ℝ} (hβ : β ≠ 0) :
+    stepBound echo obsZ (box β) 12 / oneShotBound echo obsZ (box β) 12 = 94424629 / 9765625 := by
+  rw [echo_stepBound, echo_oneShotBound]
+  field_simp
+  norm_num [sum_range_succ]
+
+/-- The ideal echo returns `⟨Z⟩ = 1`. -/
+theorem echo_ideal : obsZ ⬝ᵥ run echo 0 12 ket0 = 1 := by
+  rw [expect_eq, echo_heis]
+  simp [obsZ, ket0, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+
+/-- One echo pair with the defect `(0, β, β, β)` after each channel displaces the state by
+`pairShift β` (since `R_Y(−θ) R_Y(+θ) = 1`). -/
+theorem RYm_box (β : ℝ) (k j : ℕ) : RYm *ᵥ box β k + box β j = pairShift β := by
+  ext i
+  fin_cases i <;>
+    simp [RYm, ptmRY, box, pairShift, Matrix.cons_val] <;>
+    ring
+
+/-- **Forward simulation of the perturbed echo**: with the defect `(0, β, β, β)` after every
+channel, `m` echo pairs move the state from `a` to `a + m · pairShift β`. -/
+theorem echo_run_pairs (β : ℝ) (m : ℕ) (a : Fin 4 → ℝ) :
+    run echo (box β) (2 * m) a = a + (m : ℝ) • pairShift β := by
+  induction m generalizing a with
+  | zero => simp
+  | succ m ih =>
+    have h2 : 2 * (m + 1) = 2 * m + 1 + 1 := by ring
+    have e1 : echo (2 * m + 1) = RYp := by
+      have : (2 * m + 1) % 2 = 1 := by omega
+      simp [echo, this]
+    have e0 : echo (2 * m) = RYm := by
+      have : (2 * m) % 2 = 0 := by omega
+      simp [echo, this]
+    rw [h2, run_succ, run_succ, ih, e1, e0, mulVec_add, mulVec_mulVec, RYm_mul_RYp, one_mulVec,
+      add_assoc a, RYm_box, Nat.cast_succ, add_smul, one_smul]
+    abel
+
+/-- **Explicit witness**, checked by forward simulation: the constant defect
+`δ_k = (0, 1/1000, 1/1000, 1/1000)` after every channel lies in the box and moves `⟨Z⟩` from `1`
+to `634/625`, so the shift is `9/625`, the exact worst case. -/
+theorem echo_witness :
+    InBox (box (1 / 1000)) (box (1 / 1000)) ∧
+      obsZ ⬝ᵥ run echo (box (1 / 1000)) 12 ket0 = 634 / 625 ∧
+      shift echo obsZ ket0 (box (1 / 1000)) 12 = 9 / 625 := by
+  have hrun : obsZ ⬝ᵥ run echo (box (1 / 1000)) 12 ket0 = 634 / 625 := by
+    rw [show (12 : ℕ) = 2 * 6 from rfl, echo_run_pairs]
+    simp [obsZ, ket0, pairShift, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+    norm_num
+  refine ⟨fun k i => le_of_eq (abs_of_nonneg (box_nonneg (by norm_num) k i)), hrun, ?_⟩
+  rw [shift, hrun, echo_ideal]
+  norm_num
+
+/-- **Exact worst case value** of the echo: `9/625`. -/
+theorem echo_exactBound_value : exactBound echo obsZ (box (1 / 1000)) 12 = 9 / 625 := by
+  rw [echo_exactBound]
+  norm_num
+
+/-- **Summary for the rotation echo** (budget `1/1000`): exact worst case `=` one-shot bound
+`= 9/625`, stepwise chain `= 849821661/6103515625`, loss ratio `= 94424629/9765625 > 9`. -/
+theorem echo_summary :
+    exactBound echo obsZ (box (1 / 1000)) 12 = 9 / 625 ∧
+      oneShotBound echo obsZ (box (1 / 1000)) 12 = 9 / 625 ∧
+      stepBound echo obsZ (box (1 / 1000)) 12 = 849821661 / 6103515625 ∧
+      stepBound echo obsZ (box (1 / 1000)) 12 / oneShotBound echo obsZ (box (1 / 1000)) 12 =
+        94424629 / 9765625 ∧
+      9 < stepBound echo obsZ (box (1 / 1000)) 12 / oneShotBound echo obsZ (box (1 / 1000)) 12 :=
+  ⟨echo_exactBound_value, echo_oneShotBound_value, echo_stepBound_value, echo_ratio,
+    echo_ratio_gt_nine⟩
+
+end Echo
+
+/-! ## 4. The Clifford echo: the same circuit at a Clifford angle loses nothing -/
+
+section CliffordEcho
+
+/-- `R_Y(+π/2)` (`cos = 0`, `sin = 1`), a Clifford gate. -/
+def CYp : Matrix (Fin 4) (Fin 4) ℝ := ptmRY 0 1
+
+/-- `R_Y(−π/2)` (`cos = 0`, `sin = −1`), a Clifford gate. -/
+def CYm : Matrix (Fin 4) (Fin 4) ℝ := ptmRY 0 (-1)
+
+/-- The Clifford echo, indexed from the end like `echo`: six pairs `R_Y(+π/2), R_Y(−π/2)`. -/
+def cliffordEcho (k : ℕ) : Matrix (Fin 4) (Fin 4) ℝ := if k % 2 = 0 then CYm else CYp
+
+/-- The observable `X`. -/
+def obsX : Fin 4 → ℝ := ![0, 1, 0, 0]
+
+/-- At a Clifford angle the rotation PTM is a signed permutation of `I, X, Y, Z`:
+`X ↦ −s Z`, `Y ↦ Y`, `Z ↦ s X`. -/
+theorem ptmRY_clifford (s : ℝ) : ptmRY 0 s = monoPTM ![0, 3, 2, 1] ![1, -s, 1, s] := by
+  ext i j
+  fin_cases i <;> fin_cases j <;> simp [ptmRY, monoPTM, Matrix.cons_val]
+
+/-- Every channel of the Clifford echo has single-entry columns. -/
+theorem cliffordEcho_singleEntryColumns (k : ℕ) : SingleEntryColumns (cliffordEcho k) := by
+  unfold cliffordEcho CYp CYm
+  split_ifs <;> rw [ptmRY_clifford] <;> exact monoPTM_singleEntryColumns _ _
+
+/-- `R_Y(−π/2)ᵀ Z = X`. -/
+theorem CYm_heis : CYmᵀ *ᵥ obsZ = obsX := by
+  ext i
+  fin_cases i <;>
+    simp [CYm, ptmRY, obsZ, obsX, mulVec, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+
+/-- `R_Y(+π/2)ᵀ X = Z`. -/
+theorem CYp_heis : CYpᵀ *ᵥ obsX = obsZ := by
+  ext i
+  fin_cases i <;>
+    simp [CYp, ptmRY, obsZ, obsX, mulVec, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+
+/-- The Heisenberg weights of the Clifford echo alternate between `Z` and `X`. -/
+theorem cliffordEcho_heis (k : ℕ) :
+    heis cliffordEcho obsZ k = if k % 2 = 0 then obsZ else obsX := by
+  induction k with
+  | zero => rfl
+  | succ k ih =>
+    rw [heis_succ, ih]
+    rcases Nat.mod_two_eq_zero_or_one k with h | h
+    · have h' : (k + 1) % 2 = 1 := by omega
+      simp only [cliffordEcho, h, h', if_true, one_ne_zero, if_false]
+      exact CYm_heis
+    · have h' : (k + 1) % 2 = 0 := by omega
+      simp only [cliffordEcho, h, h', if_true, one_ne_zero, if_false]
+      exact CYp_heis
+
+/-- Each exact term of the Clifford echo is `β`. -/
+theorem cliffordEcho_exact_term (β : ℝ) (k : ℕ) :
+    box β k ⬝ᵥ absV (heis cliffordEcho obsZ k) = β := by
+  rw [cliffordEcho_heis]
+  split_ifs <;> simp [box, obsZ, obsX, dotProduct, Fin.sum_univ_four, Matrix.cons_val]
+
+/-- The exact worst case of the Clifford echo for the budget `β` is `12 β`. -/
+theorem cliffordEcho_exactBound (β : ℝ) :
+    exactBound cliffordEcho obsZ (box β) 12 = 12 * β := by
+  unfold exactBound
+  simp_rw [cliffordEcho_exact_term]
+  simp
+
+/-- **No loss at the Clifford angle** (budget `1/1000`): exact worst case `=` one-shot bound `=`
+stepwise chain `= 3/250`. -/
+theorem cliffordEcho_bounds :
+    exactBound cliffordEcho obsZ (box (1 / 1000)) 12 = 3 / 250 ∧
+      oneShotBound cliffordEcho obsZ (box (1 / 1000)) 12 = 3 / 250 ∧
+      stepBound cliffordEcho obsZ (box (1 / 1000)) 12 = 3 / 250 := by
+  have he : exactBound cliffordEcho obsZ (box (1 / 1000)) 12 = 3 / 250 := by
+    rw [cliffordEcho_exactBound]
+    norm_num
+  obtain ⟨h1, h2⟩ := no_loss_of_singleEntryColumns cliffordEcho obsZ (box (1 / 1000)) 12
+    fun i _ => cliffordEcho_singleEntryColumns i
+  exact ⟨he, h1.trans he, h2.trans he⟩
+
+/-- **Composition loss ratio `1`** for the Clifford echo. -/
+theorem cliffordEcho_ratio :
+    stepBound cliffordEcho obsZ (box (1 / 1000)) 12 /
+      oneShotBound cliffordEcho obsZ (box (1 / 1000)) 12 = 1 := by
+  rw [cliffordEcho_bounds.2.1, cliffordEcho_bounds.2.2]
+  norm_num
+
+/-- **Exact worst case** of the Clifford echo: `3/250`, and it is attained. -/
+theorem cliffordEcho_worst_case :
+    IsGreatest {x | ∃ δ, InBox (box (1 / 1000)) δ ∧ |shift cliffordEcho obsZ ket0 δ 12| = x}
+      (3 / 250) := by
+  have h := isGreatest_abs_shift cliffordEcho obsZ ket0 (box (1 / 1000))
+    (box_nonneg (by norm_num)) 12
+  rwa [cliffordEcho_bounds.1] at h
+
+end CliffordEcho
+
+/-! ## 5. The Bell pair with Pauli noise: no composition loss -/
+
+section Bell
+
+/-- Two-qubit Pauli labels `(qubit 0, qubit 1)`. -/
+abbrev Pauli2 := Fin 4 × Fin 4
+
+/-- Hadamard, Pauli labels: `X ↦ Z`, `Y ↦ Y`, `Z ↦ X` (with the sign `hadSign`). -/
+def hadPerm : Fin 4 → Fin 4 := ![0, 3, 2, 1]
+
+/-- Hadamard, signs: `Y ↦ −Y`. -/
+def hadSign : Fin 4 → ℝ := ![1, 1, -1, 1]
+
+/-- Phase gate `S`, Pauli labels: `X ↦ Y`, `Y ↦ X`, `Z ↦ Z` (with the sign `phaseSign`). -/
+def phasePerm : Fin 4 → Fin 4 := ![0, 2, 1, 3]
+
+/-- Phase gate `S`, signs: `Y ↦ −X`. -/
+def phaseSign : Fin 4 → ℝ := ![1, 1, -1, 1]
+
+/-- `CNOT` (control qubit 0), Pauli labels: the image `P' ⊗ Q'` of `P ⊗ Q`, entry `[P][Q]`.  The
+action is generated by `XI ↦ XX`, `IX ↦ IX`, `ZI ↦ ZI`, `IZ ↦ ZZ`. -/
+def cnotPerm : Fin 4 → Fin 4 → Pauli2 :=
+  ![![(0, 0), (0, 1), (3, 2), (3, 3)],
+    ![(1, 1), (1, 0), (2, 3), (2, 2)],
+    ![(2, 1), (2, 0), (1, 3), (1, 2)],
+    ![(3, 0), (3, 1), (0, 2), (0, 3)]]
+
+/-- `CNOT`, signs: `XZ ↦ −YY`, `YY ↦ −XZ`. -/
+def cnotSign : Fin 4 → Fin 4 → ℝ :=
+  ![![1, 1, 1, 1], ![1, 1, 1, -1], ![1, 1, -1, 1], ![1, 1, 1, 1]]
+
+/-- `CZ`, Pauli labels: the image of `P ⊗ Q`, entry `[P][Q]`.  The action is generated by
+`XI ↦ XZ`, `IX ↦ ZX`, `ZI ↦ ZI`, `IZ ↦ IZ`. -/
+def czPerm : Fin 4 → Fin 4 → Pauli2 :=
+  ![![(0, 0), (3, 1), (3, 2), (0, 3)],
+    ![(1, 3), (2, 2), (2, 1), (1, 0)],
+    ![(2, 3), (1, 2), (1, 1), (2, 0)],
+    ![(3, 0), (0, 1), (0, 2), (3, 3)]]
+
+/-- `CZ`, signs: `XY ↦ −YX`, `YX ↦ −XY`. -/
+def czSign : Fin 4 → Fin 4 → ℝ :=
+  ![![1, 1, 1, 1], ![1, 1, -1, 1], ![1, -1, 1, 1], ![1, 1, 1, 1]]
+
+/-- The PTM of `H` on qubit 0. -/
+def ptmH0 : Matrix Pauli2 Pauli2 ℝ :=
+  monoPTM (fun x => (hadPerm x.1, x.2)) (fun x => hadSign x.1)
+
+/-- The PTM of `CNOT` with control qubit 0. -/
+def ptmCNOT : Matrix Pauli2 Pauli2 ℝ :=
+  monoPTM (fun x => cnotPerm x.1 x.2) (fun x => cnotSign x.1 x.2)
+
+/-- The PTM of the depolarizing channel `ρ ↦ (1 − p) ρ + p Tr(ρ) I/2` with `p = 1/50` on
+qubit 0: the factor `49/50` on every Pauli string that is not the identity on qubit 0. -/
+def ptmDep0 : Matrix Pauli2 Pauli2 ℝ :=
+  monoPTM id (fun x => if x.1 = 0 then 1 else 49 / 50)
+
+/-- The PTM of the Pauli channel with `(p_X, p_Y, p_Z) = (1/100, 0, 1/40)` on qubit 1: the factors
+`1 − 2(p_Y + p_Z) = 19/20` on `X`, `1 − 2(p_X + p_Z) = 93/100` on `Y` and
+`1 − 2(p_X + p_Y) = 49/50` on `Z`. -/
+def ptmPauli1 : Matrix Pauli2 Pauli2 ℝ :=
+  monoPTM id (fun x => ![1, 19 / 20, 93 / 100, 49 / 50] x.2)
+
+/-- The PTM of `S` on qubit 1. -/
+def ptmS1 : Matrix Pauli2 Pauli2 ℝ :=
+  monoPTM (fun x => (x.1, phasePerm x.2)) (fun x => phaseSign x.2)
+
+/-- The PTM of `CZ`. -/
+def ptmCZ : Matrix Pauli2 Pauli2 ℝ :=
+  monoPTM (fun x => czPerm x.1 x.2) (fun x => czSign x.1 x.2)
+
+/-- The Bell circuit, indexed from the end: the forward order is
+`H₀, CNOT, Dep₀, Pauli₁, S₁, CZ` (six channels). -/
+def bell : ℕ → Matrix Pauli2 Pauli2 ℝ
+  | 0 => ptmCZ
+  | 1 => ptmS1
+  | 2 => ptmPauli1
+  | 3 => ptmDep0
+  | 4 => ptmCNOT
+  | _ => ptmH0
+
+/-- The last channel is `CZ`. -/
+@[simp] theorem bell_zero : bell 0 = ptmCZ := rfl
+/-- The fifth channel is `S₁`. -/
+@[simp] theorem bell_one : bell 1 = ptmS1 := rfl
+/-- The fourth channel is `Pauli₁`. -/
+@[simp] theorem bell_two : bell 2 = ptmPauli1 := rfl
+/-- The third channel is `Dep₀`. -/
+@[simp] theorem bell_three : bell 3 = ptmDep0 := rfl
+/-- The second channel is `CNOT`. -/
+@[simp] theorem bell_four : bell 4 = ptmCNOT := rfl
+/-- The first channel is `H₀`. -/
+@[simp] theorem bell_five : bell 5 = ptmH0 := rfl
+
+/-- The observable `Z ⊗ Z`. -/
+def obsZZ : Pauli2 → ℝ := Pi.single (3, 3) 1
+
+/-- The initial state `|00⟩` (a product of two `|0⟩`). -/
+def ket00 : Pauli2 → ℝ := fun x => ket0 x.1 * ket0 x.2
+
+/-- The box: budget `β` on every non-identity Pauli string after every step. -/
+def box2 (β : ℝ) : ℕ → Pauli2 → ℝ := fun _ x => if x = (0, 0) then 0 else β
+
+/-- Every channel of the Bell circuit has single-entry columns. -/
+theorem bell_singleEntryColumns (k : ℕ) : SingleEntryColumns (bell k) := by
+  rcases k with _ | _ | _ | _ | _ | k <;> exact monoPTM_singleEntryColumns _ _
+
+/-- The exact worst case of the Bell circuit is `461/78125`. -/
+theorem bell_exactBound : exactBound bell obsZZ (box2 (1 / 1000)) 6 = 461 / 78125 := by
+  simp only [exactBound, sum_range_succ, sum_range_zero, heis_succ, heis_zero, bell_zero,
+    bell_one, bell_two, bell_three, bell_four, ptmCZ, ptmS1, ptmPauli1, ptmDep0, ptmCNOT,
+    monoPTM_transpose_mulVec]
+  simp [dotProduct, Fintype.sum_prod_type, Fin.sum_univ_four, box2, obsZZ, Pi.single_apply,
+    phasePerm, phaseSign, cnotPerm, cnotSign, czPerm, czSign, Matrix.cons_val]
+  norm_num
+
+/-- **Exact worst case** of the Bell circuit: `461/78125`, and it is attained. -/
+theorem bell_worst_case :
+    IsGreatest {x | ∃ δ, InBox (box2 (1 / 1000)) δ ∧ |shift bell obsZZ ket00 δ 6| = x}
+      (461 / 78125) := by
+  have hb : ∀ k i, 0 ≤ box2 (1 / 1000) k i := by
+    intro k i
+    unfold box2
+    split_ifs <;> norm_num
+  have h := isGreatest_abs_shift bell obsZZ ket00 (box2 (1 / 1000)) hb 6
+  rwa [bell_exactBound] at h
+
+/-- **No loss** for the Bell circuit: one-shot bound `=` stepwise chain `= 461/78125`. -/
+theorem bell_bounds :
+    oneShotBound bell obsZZ (box2 (1 / 1000)) 6 = 461 / 78125 ∧
+      stepBound bell obsZZ (box2 (1 / 1000)) 6 = 461 / 78125 := by
+  obtain ⟨h1, h2⟩ := no_loss_of_singleEntryColumns bell obsZZ (box2 (1 / 1000)) 6
+    fun i _ => bell_singleEntryColumns i
+  exact ⟨h1.trans bell_exactBound, h2.trans bell_exactBound⟩
+
+/-- **Composition loss ratio `1`** for the Bell circuit. -/
+theorem bell_ratio :
+    stepBound bell obsZZ (box2 (1 / 1000)) 6 / oneShotBound bell obsZZ (box2 (1 / 1000)) 6 =
+      1 := by
+  rw [bell_bounds.1, bell_bounds.2]
+  norm_num
+
+/-- **Summary for the Bell circuit** (budget `1/1000`): exact worst case `=` one-shot bound `=`
+stepwise chain `= 461/78125`, loss ratio `1`. -/
+theorem bell_summary :
+    exactBound bell obsZZ (box2 (1 / 1000)) 6 = 461 / 78125 ∧
+      oneShotBound bell obsZZ (box2 (1 / 1000)) 6 = 461 / 78125 ∧
+      stepBound bell obsZZ (box2 (1 / 1000)) 6 = 461 / 78125 ∧
+      stepBound bell obsZZ (box2 (1 / 1000)) 6 / oneShotBound bell obsZZ (box2 (1 / 1000)) 6 =
+        1 :=
+  ⟨bell_exactBound, bell_bounds.1, bell_bounds.2, bell_ratio⟩
+
+/-- The ideal Bell circuit gives `⟨Z ⊗ Z⟩ = 2401/2500 = (49/50)²`. -/
+theorem bell_ideal : obsZZ ⬝ᵥ run bell 0 6 ket00 = 2401 / 2500 := by
+  rw [expect_eq]
+  simp only [heis_succ, heis_zero, bell_zero, bell_one, bell_two, bell_three, bell_four,
+    bell_five, ptmCZ, ptmS1, ptmPauli1, ptmDep0, ptmCNOT, ptmH0, monoPTM_transpose_mulVec]
+  simp [dotProduct, Fintype.sum_prod_type, Fin.sum_univ_four, ket00, ket0, obsZZ,
+    Pi.single_apply, hadPerm, hadSign, phasePerm, phaseSign, cnotPerm, cnotSign, czPerm, czSign,
+    Matrix.cons_val]
+  norm_num
+
+end Bell
+
+/-! ## 6. Applications: the general results on the examples
+
+Every theorem of sections 1–5 that has hypotheses or parameters, and is not already used
+(directly or through other results) by a parameter-free result on the examples, is applied here
+at least once, to the circuits, budgets and observables of sections 3–5, with all of its
+hypotheses discharged.  Each theorem below states which results it applies and which hypotheses
+it discharges. -/
+
+section Applications
+
+/-- **The ordering of the three bounds on the rotation echo**, obtained from the general
+inequalities `exactBound_le_oneShotBound` and `oneShotBound_le_stepBound` for the twelve-channel
+echo, the observable `Z` and the budget `1/1000`.  Their hypothesis, a nonnegative budget, is
+discharged by `box_nonneg`.  The instance is not degenerate: the budget is positive on `X`, `Y`
+and `Z`, and the channels mix `X` and `Z`.  (By the values of section 3 the first inequality is
+an equality, `9/625 = 9/625`, and the second one is strict.) -/
+theorem echo_bounds_ordered :
+    exactBound echo obsZ (box (1 / 1000)) 12 ≤ oneShotBound echo obsZ (box (1 / 1000)) 12 ∧
+      oneShotBound echo obsZ (box (1 / 1000)) 12 ≤ stepBound echo obsZ (box (1 / 1000)) 12 :=
+  ⟨exactBound_le_oneShotBound echo obsZ (box (1 / 1000)) (box_nonneg (by norm_num)) 12,
+    oneShotBound_le_stepBound echo obsZ (box (1 / 1000)) (box_nonneg (by norm_num)) 12⟩
+
+/-- **The ordering of the three bounds on the Bell circuit**, obtained from the general
+inequalities `exactBound_le_oneShotBound` and `oneShotBound_le_stepBound` for the six-channel Bell
+circuit, the observable `Z ⊗ Z` and the budget `1/1000` on every non-identity Pauli string.
+Their hypothesis, a nonnegative budget, is checked directly.  The instance is not degenerate: the
+budget is positive on fifteen Pauli strings and the channels are nontrivial Clifford gates and
+Pauli noise.  (Here all three bounds are equal, `bell_summary`.) -/
+theorem bell_bounds_ordered :
+    exactBound bell obsZZ (box2 (1 / 1000)) 6 ≤ oneShotBound bell obsZZ (box2 (1 / 1000)) 6 ∧
+      oneShotBound bell obsZZ (box2 (1 / 1000)) 6 ≤ stepBound bell obsZZ (box2 (1 / 1000)) 6 := by
+  have hb : ∀ k i, 0 ≤ box2 (1 / 1000) k i := by
+    intro k i
+    unfold box2
+    split_ifs <;> norm_num
+  exact ⟨exactBound_le_oneShotBound bell obsZZ (box2 (1 / 1000)) hb 6,
+    oneShotBound_le_stepBound bell obsZZ (box2 (1 / 1000)) hb 6⟩
+
+/-- **Least one-shot weights for an echo composite.**  Applies `oneShot_isLeast` to the composite
+`M = prop echo 11` of the last eleven echo channels with the observable `Z` at the end; the lemma
+has no hypotheses beyond these data.  The least weight vector `μ` with
+`d_{|Z|}(M z, M z') ≤ d_μ(z, z')` for all `z, z'` is `(4/5) X + (3/5) Z`.  The instance is not
+degenerate: the composite moves weight from `Z` onto `X`. -/
+theorem echo_oneShot_isLeast :
+    IsLeast {mu | Admissible (prop echo 11) (absV obsZ) mu} ![0, 4 / 5, 0, 3 / 5] := by
+  have hO : oneShot echo obsZ 11 = ![0, 4 / 5, 0, 3 / 5] := by
+    rw [obsZ_eq_single, oneShot_single, ← obsZ_eq_single, echo_heis,
+      if_neg (show ¬ ((11 : ℕ) % 2 = 0) by decide)]
+    ext i
+    fin_cases i <;> norm_num [gOdd, Matrix.cons_val]
+  have h := oneShot_isLeast echo obsZ 11
+  rwa [hO] at h
+
+/-- **The minimal admissible weight lemma on an echo composite.**  Applies `admissible_iff` in
+both directions to the composite `prop echo 11` of the last eleven echo channels with the
+observable weights `λ = |Z|` at the end; its hypothesis `0 ≤ λ` is discharged by `absV_nonneg`.
+Since `|prop echo 11|ᵀ |Z| = (4/5) X + (3/5) Z`, the weights `X + Z` are admissible for this
+composite (sufficiency), while the observable's own weights `|Z|` are not (necessity: the
+composite moves weight from `Z` onto `X`).  The instance is not degenerate. -/
+theorem echo_admissible_iff :
+    Admissible (prop echo 11) (absV obsZ) ![0, 1, 0, 1] ∧
+      ¬ Admissible (prop echo 11) (absV obsZ) (absV obsZ) := by
+  have hO : oneShot echo obsZ 11 = ![0, 4 / 5, 0, 3 / 5] := by
+    rw [obsZ_eq_single, oneShot_single, ← obsZ_eq_single, echo_heis,
+      if_neg (show ¬ ((11 : ℕ) % 2 = 0) by decide)]
+    ext i
+    fin_cases i <;> norm_num [gOdd, Matrix.cons_val]
+  refine ⟨(admissible_iff (absV_nonneg obsZ)).mpr ?_, fun h => ?_⟩
+  · change oneShot echo obsZ 11 ≤ _
+    rw [hO]
+    intro i
+    fin_cases i <;> norm_num [Matrix.cons_val]
+  · have h1 : oneShot echo obsZ 11 ≤ absV obsZ := (admissible_iff (absV_nonneg obsZ)).mp h
+    rw [hO] at h1
+    have h2 := h1 1
+    norm_num [obsZ, Matrix.cons_val] at h2
+
+/-- **The stepwise chain is admissible at the echo channels.**  Applies `stepW_admissible` to the
+echo with the observable `Z`, at the last channel (`k = 0`, which is `R_Y(−θ)`) and at the first
+channel (`k = 11`, which is `R_Y(+θ)`), with the stepwise weights in closed form
+(`echo_stepW`): `d_{w_0}(R_Y(−θ) z, R_Y(−θ) z') ≤ d_{w_1}(z, z')` and
+`d_{w_11}(R_Y(+θ) z, R_Y(+θ) z') ≤ d_{w_12}(z, z')` for all `z, z'`.  The lemma has no hypotheses
+beyond its data.  The instance is not degenerate. -/
+theorem echo_stepW_admissible :
+    Admissible RYm (wEcho 0) (wEcho 1) ∧ Admissible RYp (wEcho 11) (wEcho 12) := by
+  have h0 := stepW_admissible echo obsZ 0
+  have h11 := stepW_admissible echo obsZ 11
+  rw [echo_stepW, echo_stepW] at h0
+  rw [echo_stepW, echo_stepW] at h11
+  exact ⟨h0, h11⟩
+
+/-- **Chaining the stepwise weights through eleven echo channels.**  Applies `addDist_prop_le`
+to the echo with the stepwise chain `λ = stepW echo Z` (so `λ₀ = |Z|`) over the last eleven
+channels; its hypothesis, admissibility at every step `i < 11`, is discharged by
+`stepW_admissible`.  The two states compared are `|0⟩` and `|0⟩` displaced by the box defect
+`(0, 1/1000, 1/1000, 1/1000)`; the bound is in terms of the stepwise weights `w_11` in closed
+form.  The instance is not degenerate. -/
+theorem echo_addDist_prop_le :
+    addDist (absV obsZ) (prop echo 11 *ᵥ (ket0 + box (1 / 1000) 0)) (prop echo 11 *ᵥ ket0) ≤
+      addDist (wEcho 11) (ket0 + box (1 / 1000) 0) ket0 := by
+  have h := addDist_prop_le echo (stepW echo obsZ) 11 (fun i _ => stepW_admissible echo obsZ i)
+    (ket0 + box (1 / 1000) 0) ket0
+  rw [echo_stepW 11] at h
+  exact h
+
+/-- **A second admissible chain for the echo.**  The uniform chain `λ_k = (7/5)ᵏ (X + Z)` starts
+above the observable weights, `λ₀ = X + Z ≥ |Z|`, and is admissible at every echo channel, since
+`|R_Y(±θ)|ᵀ (X + Z) = (7/5) (X + Z)` (checked through `admissible_iff`).  Applying `stepW_le` and
+`stepBound_le_chain` to it, with all of their hypotheses discharged (`λ₀ ≥ |Z|`, admissibility at
+every step, and a nonnegative budget by `box_nonneg`), gives `w_12 ≤ (7/5)¹² (X + Z)` and, for the
+budget `1/1000`, `stepBound ≤ Σ_{k<12} ⟨b_k, λ_k⟩ = 1699643322/6103515625`, twice the stepwise
+value `849821661/6103515625`.  The instance is not degenerate. -/
+theorem echo_uniform_chain :
+    stepW echo obsZ 12 ≤ (7 / 5 : ℝ) ^ 12 • (![0, 1, 0, 1] : Fin 4 → ℝ) ∧
+      stepBound echo obsZ (box (1 / 1000)) 12 ≤ 1699643322 / 6103515625 := by
+  have h0 : absV obsZ ≤ (7 / 5 : ℝ) ^ 0 • (![0, 1, 0, 1] : Fin 4 → ℝ) := by
+    intro i
+    fin_cases i <;> simp [obsZ, Matrix.cons_val]
+  have hstep : ∀ i : ℕ, absRYᵀ *ᵥ ((7 / 5 : ℝ) ^ i • (![0, 1, 0, 1] : Fin 4 → ℝ)) =
+      (7 / 5 : ℝ) ^ (i + 1) • (![0, 1, 0, 1] : Fin 4 → ℝ) := by
+    intro i
+    ext j
+    fin_cases j <;>
+      simp [absRY, mulVec, dotProduct, Fin.sum_univ_four, Matrix.cons_val, pow_succ] <;>
+      ring
+  have hadm : ∀ i < 12, Admissible (echo i) ((7 / 5 : ℝ) ^ i • (![0, 1, 0, 1] : Fin 4 → ℝ))
+      ((7 / 5 : ℝ) ^ (i + 1) • (![0, 1, 0, 1] : Fin 4 → ℝ)) := by
+    intro i _
+    refine (admissible_iff ?hn).mpr ?hw
+    case hn =>
+      intro j
+      fin_cases j <;> simp [Matrix.cons_val] <;> positivity
+    case hw =>
+      rw [echo_map_abs]
+      exact (hstep i).le
+  have hterm : ∀ k : ℕ,
+      box (1 / 1000) k ⬝ᵥ ((7 / 5 : ℝ) ^ k • (![0, 1, 0, 1] : Fin 4 → ℝ)) =
+        2 / 1000 * (7 / 5 : ℝ) ^ k := by
+    intro k
+    simp [box, dotProduct, Fin.sum_univ_four]
+    ring
+  refine ⟨stepW_le echo obsZ (fun k => (7 / 5 : ℝ) ^ k • (![0, 1, 0, 1] : Fin 4 → ℝ)) h0 12 hadm,
+    ?_⟩
+  refine (stepBound_le_chain echo obsZ (box (1 / 1000)) (box_nonneg (by norm_num))
+    (fun k => (7 / 5 : ℝ) ^ k • (![0, 1, 0, 1] : Fin 4 → ℝ)) h0 12 hadm).trans (le_of_eq ?_)
+  simp only [hterm]
+  norm_num [sum_range_succ]
+
+/-- **The observable is controlled by its own weights, on the echo.**  Applies
+`abs_dotProduct_sub_le` to the observable `Z` and to the perturbed and the ideal final states of
+the twelve-channel echo from `|0⟩`, the perturbation being the constant box defect
+`(0, 1/1000, 1/1000, 1/1000)` after every channel: the shift of `⟨Z⟩` (which is `9/625`,
+`echo_witness`) is at most the `|Z|`-weighted distance of the two final states.  The lemma has no
+hypotheses beyond its data.  The instance is not degenerate. -/
+theorem echo_shift_le_addDist :
+    |shift echo obsZ ket0 (box (1 / 1000)) 12| ≤
+      addDist (absV obsZ) (run echo (box (1 / 1000)) 12 ket0) (run echo 0 12 ket0) :=
+  abs_dotProduct_sub_le obsZ _ _
+
+/-- **The loss ratio of the echo at a second budget.**  Applies `echo_ratio_any` at the budget
+`β = 1/100`, ten times the budget of `echo_ratio`; its hypothesis `β ≠ 0` is discharged by
+`norm_num`.  The instance is not degenerate (a positive budget). -/
+theorem echo_ratio_one_percent :
+    stepBound echo obsZ (box (1 / 100)) 12 / oneShotBound echo obsZ (box (1 / 100)) 12 =
+      94424629 / 9765625 :=
+  echo_ratio_any (by norm_num)
+
+/-- **No channel, nothing moves.**  Applies `run_zero` to the echo with the box defect
+`(0, 1/1000, 1/1000, 1/1000)` and with no defect, so that with no channel the state stays `|0⟩`
+and the shift of `⟨Z⟩` is `0`; and applies `heis_zero` to the echo with the observable `Z`, so
+that with no channel to come the Heisenberg weight is `Z` itself.  These lemmas have no
+hypotheses beyond their data.  They are base cases, so the number of channels is `0` by their
+very statement; the circuit, the defect, the state and the observable are those of the rotation
+echo. -/
+theorem echo_base_cases :
+    run echo (box (1 / 1000)) 0 ket0 = ket0 ∧ shift echo obsZ ket0 (box (1 / 1000)) 0 = 0 ∧
+      heis echo obsZ 0 = obsZ := by
+  refine ⟨run_zero echo (box (1 / 1000)) ket0, ?_, heis_zero echo obsZ⟩
+  rw [shift, run_zero, run_zero, sub_self]
+
+end Applications
+
+end
+
+end PauliComposition
+end Part17_PauliComposition
