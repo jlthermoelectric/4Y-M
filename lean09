@@ -1,0 +1,1392 @@
+import Mathlib
+
+/-!
+# Fields over finite internal fibres
+
+A Lean 4 / Mathlib development about proof methods, in the same series as the earlier parts; it
+does not import them. The file imports Mathlib only, and its namespace is `FiniteFibre`.
+
+The source is a note, *Fields over internal fibres: geometric and spectral formulation*, in which
+every base point `x` carries a compact connected fibre `Σ_x` with a normalised smooth density
+`dν_x`, a field is a function on the total space, `A` is the fibre average, `P = ι A` and
+`Q = I − P`, `H_μ = ∂_μ − B_μ^a ∂_a` is a horizontal lift, `κ_μ = ρ⁻¹(∂_μ ρ − ∂_a(ρ B_μ^a))`, and
+`L_x` is the fibre Laplacian with eigenvalues `0 = λ₀ < λ₁ ≤ λ₂ ≤ …`. This file proves the
+finite-fibre versions of the source's Props. 3, 5, 7 and 8 and of its estimates (9.3)–(9.4), and
+a finite-dimensional form of a Gaussian identity for `κ`. Proposition and equation numbers refer
+to the source; section signs §1–§8 refer to the sections of this file.
+
+## Setting
+
+* **Fibre.** A finite type `S` with weights `ν : S → ℝ`, `0 < ν s`, `∑ s, ν s = 1`. Profiles are
+  functions `u : S → ℝ`. `ip ν u v = ∑ s, ν s * u s * v s` is the fibre inner product, `nsq ν u =
+  ip ν u u` the squared norm, `avg ν u = ∑ s, ν s * u s` the average `A`, `lift c` the constant
+  profile `ι c`, `proj ν u = lift (avg ν u)` the projection `P`, `fluct ν u = u − proj ν u` the
+  fluctuation `Q u`.
+* **Base direction.** One real parameter `t` (one base coordinate `x^μ`). Weights `ν t` and
+  profiles `F t` have derivatives `ν'`, `F'` at `t₀` (`HasDerivAt`). The connection is a real
+  matrix `X` on the fibre with `X 1 = 0`, and the horizontal derivative is `H F = F' − X F`.
+* **Fibre operator.** A real matrix `L` that is symmetric for `ip ν` (`ν s L s r = ν r L r s`),
+  kills the constants, has kernel contained in the constants, and whose nonzero eigenvalues are
+  all at least `λ₁ > 0`.
+* **Gaussian data.** A precision matrix `K` (invertible, positive definite), a coarse map `A`
+  with `A K⁻¹ Aᵀ` invertible, and a right inverse `J` of `A`.
+
+## Main results
+
+* **Prop. 3** (§1). `A ι = id` (`avg_lift`); `P² = P` (`proj_proj`); `P` is self-adjoint
+  (`ip_proj_left`); `⟨P u, Q u⟩ = 0` (`ip_proj_fluct`); `‖u‖² = |A u|² + ‖Q u‖²`
+  (`nsq_eq_sq_avg_add_nsq_fluct`); `|A u|² ≤ ‖u‖²` (`sq_avg_le_nsq`); `‖P‖ = 1`, in the form
+  `IsGreatest {‖P u‖² : ‖u‖ = 1} 1` (`isGreatest_nsq_proj`). Integrated over a finite base with a
+  fibre map `π`, the same orthogonality gives the law of total variance
+  `Var F = E[Var(F | π)] + Var(E[F | π])` (`total_variance`).
+* **Prop. 5** (§2). With `κ = ν⁻¹(ν' + Xᵀ ν)` (`kappa`):
+  `∂_t (A F) = A(H F) + A(κ F)` (`hasDerivAt_avg`), `A κ = 0` (`avg_kappa_eq_zero`) and
+  `∂_t (A F) − A(H F) = A(κ Q F)` (`deriv_avg_sub_avg_horiz`); bundled as
+  `differentiation_of_averages`.
+* **Spectral input** (§3, the finite form of (8.4)–(8.7)). A `ν`-symmetric matrix has a
+  `ν`-orthonormal eigenbasis (`exists_eigenBasis`, from Mathlib's spectral theorem for Hermitian
+  matrices). In an eigenbasis: Parseval (`EigenBasis.nsq_eq`) and
+  `⟨u, L u⟩ = ∑ λ_n |u_n|²` (`EigenBasis.ip_mulVec`).
+* **Prop. 7** (§4). `‖u − A u‖² ≤ λ₁⁻¹ ⟨u, L u⟩`, from an eigenbasis (`poincare_of_eigenBasis`)
+  and from the hypotheses on `L` alone (`poincare`); hence `⟨u, L u⟩ ≥ 0` (`ip_mulVec_nonneg`).
+* **Prop. 8** (§5). With `L^{s/2}` defined by spectral calculus in the eigenbasis
+  (`EigenBasis.fpow`; `fpow_two`: `L^{2/2} = L`; `fpow_zero`: `L⁰ = 1`) and `P_T` the projection
+  onto the retained modes (`EigenBasis.trunc`): if every omitted eigenvalue is at least `Λ > 0`
+  and `s ≥ 0` then `‖(I − P_T) u‖² ≤ Λ^{−s} ‖L^{s/2} u‖²` (`truncation`); for an increasing
+  eigenvalue list, `‖(I − P_N) u‖² ≤ λ_{N+1}^{−s} ‖L^{s/2} u‖²` (`truncation_sorted`).
+* **(9.3)–(9.4)** (§6). Weighted Cauchy–Schwarz (`abs_ip_le`);
+  `|∂_t(A F) − A(H F)| ≤ ‖κ‖ ‖Q F‖` (`commutator_bound`) and
+  `|∂_t(A F) − A(H F)| ≤ ‖κ‖ λ₁^{−1/2} ⟨F, L F⟩^{1/2}` (`commutator_bound_energy`).
+* **κ for Gibbs weights and the Gaussian κ_J lemma** (§7). For weights `ν_t ∝ exp(−V_t)` and
+  `X = 0`, `κ = −(V' − A V')` (`hasDerivAt_gibbs`, `kappa_gibbs`) and
+  `∂_t (A F) = A F' − ⟨Q V', F⟩` (`hasDerivAt_avg_gibbs`). For finitely many points `φ s` of a
+  fibre moved rigidly along `w = J η` with Gibbs weights `∝ exp(−½ φ·Kφ)`,
+  `κ s = −(K w)·(φ s − E φ)` exactly (`kappa_quadAction_sample`). With the conditional-mean lift
+  `J_* = K⁻¹ Aᵀ (A K⁻¹ Aᵀ)⁻¹` (`condMeanLift`): `A J_* = 1` (`mul_condMeanLift`), `K J_* y` is
+  orthogonal to `ker A` (`condMeanLift_orth`), `J_* y` minimises `φ·Kφ` on the fibre `{A φ = y}`
+  (`condMeanLift_minimises`), and the matrix `S = K⁻¹ − K⁻¹ Aᵀ (A K⁻¹ Aᵀ)⁻¹ A K⁻¹` (`fibreCov`;
+  for a Gaussian it is the fibre covariance, which is not derived here) satisfies
+  `S K = 1 − J_* A`, `A S = 0` and `−S K J = J_* − J`
+  (`fibreCov_mul`, `mul_fibreCov`, `neg_fibreCov_mul_mul`), and
+  `κ_J(y, φ) = −(K J η)·(φ − J_* y)` vanishes on every fibre for every `η` **iff `J = J_*`**
+  (`kappaJ_eq_zero_iff`).
+
+§8 contains closed theorems that apply every main result to concrete data: the three-point fibre
+with weights `(1/2, 1/4, 1/4)`, a fibre operator on it with spectrum `{0, 2, 3}` and an explicit
+eigenbasis, a parameter family of weights with a nonzero `κ`, Gibbs weights on the three-point
+fibre, a four-point total space over a two-point base, and a two-site Gaussian with one coarse
+variable (with a two-point sample of one of its fibres).
+
+## Scope
+
+Finite fibres only. The source's setting (smooth bundles over a Lorentzian base, compact
+two-dimensional fibres, Sobolev spaces, the Friedrichs Laplacian and elliptic regularity) is not
+formalised; nothing here is about the Yang–Mills measure; (D), (E) and the mass gap remain open.
+
+The following hypotheses stand in for the analytic inputs of the source:
+* the normalised smooth density `ρ` is replaced by positive weights summing to one;
+* the vertical vector field `B^a ∂_a` is replaced by a matrix `X` with `X 1 = 0` (a finite set
+  carries no nonzero derivations), and integration by parts on the closed fibre by the exact
+  transpose identity `∑ ν (X F) = ∑ (Xᵀ ν) F`;
+* the fibre Laplacian is replaced by a `ν`-symmetric matrix `L`; its kernel and spectral gap
+  (Prop. 6 and (8.6)) are hypotheses; the Dirichlet energy `∫ |d_v Φ|²_h dν` of (9.1) and (9.4) is
+  replaced by `⟨Φ, L Φ⟩`, which equals it by Prop. 6 in the smooth setting;
+* `L^{s/2}` and the truncation `P_T` are defined by spectral calculus in a given eigenbasis; their
+  independence of the choice of eigenbasis is not proved;
+* for the Gaussian lemma, the conditional law is not constructed: the formal content is the
+  matrix algebra behind `κ_J` and a finite-sample version of the formula for `κ`.
+
+## Not formalised here
+
+Props. 1, 2, 4, 6 (the integration by parts), 9 and 10; the curvature formulas (6.3)–(6.6); the
+metric-compatible derivative (7.6)–(7.7), which needs the Leibniz rule of a vector field; mode
+transport and leakage (§10); the action, field equations and the solvable models (§11–§14); the
+uniformity discussion (9.5); the Gaussian integration by parts `E[ξ F] = S E[∇F]` and the
+covariance form of the κ_J identity; the Moser transport.
+-/
+
+namespace FiniteFibre
+
+open Finset
+open scoped Matrix
+
+noncomputable section
+
+/-! ## 1. Profiles on a finite fibre: averaging as an orthogonal projection (Prop. 3) -/
+
+section Projection
+
+variable {S : Type*} [Fintype S]
+
+/-- The fibre inner product `⟨u, v⟩_ν = ∑_s ν s * u s * v s`. -/
+def ip (ν u v : S → ℝ) : ℝ := ∑ s, ν s * u s * v s
+
+/-- The squared fibre norm `‖u‖²_ν = ⟨u, u⟩_ν`. -/
+def nsq (ν u : S → ℝ) : ℝ := ip ν u u
+
+/-- The fibre average `A u = ∑_s ν s * u s`; for normalised weights it equals `⟨1, u⟩_ν`. -/
+def avg (ν u : S → ℝ) : ℝ := ∑ s, ν s * u s
+
+/-- The constant profile with value `c` (the lift `ι c` of a base value). -/
+def lift (c : ℝ) : S → ℝ := fun _ => c
+
+/-- The projection `P u = ι (A u)` onto the constant profiles. -/
+def proj (ν u : S → ℝ) : S → ℝ := lift (avg ν u)
+
+/-- The fluctuation part `Q u = u − P u`. -/
+def fluct (ν u : S → ℝ) : S → ℝ := u - proj ν u
+
+omit [Fintype S] in
+@[simp] theorem lift_apply (c : ℝ) (s : S) : lift c s = c := rfl
+
+theorem ip_comm (ν u v : S → ℝ) : ip ν u v = ip ν v u :=
+  Finset.sum_congr rfl fun s _ => by ring
+
+theorem ip_sub_left (ν u v w : S → ℝ) : ip ν (u - v) w = ip ν u w - ip ν v w := by
+  simp only [ip, Pi.sub_apply, mul_sub, sub_mul, Finset.sum_sub_distrib]
+
+theorem ip_sub_right (ν u v w : S → ℝ) : ip ν u (v - w) = ip ν u v - ip ν u w := by
+  simp only [ip, Pi.sub_apply, mul_sub, Finset.sum_sub_distrib]
+
+theorem ip_zero_right (ν u : S → ℝ) : ip ν u 0 = 0 := by
+  simp [ip]
+
+theorem ip_lift_left (ν v : S → ℝ) (c : ℝ) : ip ν (lift c) v = c * avg ν v := by
+  simp only [ip, avg, lift, Finset.mul_sum]
+  exact Finset.sum_congr rfl fun s _ => by ring
+
+theorem ip_lift_right (ν u : S → ℝ) (c : ℝ) : ip ν u (lift c) = c * avg ν u := by
+  rw [ip_comm, ip_lift_left]
+
+theorem avg_sub (ν u v : S → ℝ) : avg ν (u - v) = avg ν u - avg ν v := by
+  simp only [avg, Pi.sub_apply, mul_sub, Finset.sum_sub_distrib]
+
+/-- The average of a product is the inner product: `A (k u) = ⟨k, u⟩_ν`. -/
+theorem avg_mul (ν k u : S → ℝ) : avg ν (k * u) = ip ν k u :=
+  Finset.sum_congr rfl fun s _ => by simp only [Pi.mul_apply]; ring
+
+theorem nsq_nonneg {ν : S → ℝ} (hν : ∀ s, 0 ≤ ν s) (u : S → ℝ) : 0 ≤ nsq ν u :=
+  Finset.sum_nonneg fun s _ => by rw [mul_assoc]; exact mul_nonneg (hν s) (mul_self_nonneg _)
+
+/-- **`A ι = id`** (Prop. 3): the average of a constant profile is its value. -/
+theorem avg_lift {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (c : ℝ) : avg ν (lift c) = c := by
+  simp only [avg, lift, ← Finset.sum_mul, h1, one_mul]
+
+theorem avg_fluct {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (u : S → ℝ) : avg ν (fluct ν u) = 0 := by
+  rw [fluct, proj, avg_sub, avg_lift h1, sub_self]
+
+/-- `P` fixes the constant profiles. -/
+theorem proj_lift {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (c : ℝ) : proj ν (lift c) = lift c := by
+  rw [proj, avg_lift h1]
+
+/-- **`P² = P`** (Prop. 3). -/
+theorem proj_proj {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (u : S → ℝ) : proj ν (proj ν u) = proj ν u :=
+  proj_lift h1 _
+
+/-- **`P` is self-adjoint** (Prop. 3): `⟨P u, v⟩_ν = ⟨u, P v⟩_ν`. -/
+theorem ip_proj_left (ν u v : S → ℝ) : ip ν (proj ν u) v = ip ν u (proj ν v) := by
+  rw [proj, proj, ip_lift_left, ip_lift_right, mul_comm]
+
+/-- `Q u` is orthogonal to every constant profile. -/
+theorem ip_lift_fluct {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (c : ℝ) (u : S → ℝ) :
+    ip ν (lift c) (fluct ν u) = 0 := by
+  rw [ip_lift_left, avg_fluct h1, mul_zero]
+
+/-- **`⟨P u, Q u⟩_ν = 0`** (Prop. 3). -/
+theorem ip_proj_fluct {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (u : S → ℝ) :
+    ip ν (proj ν u) (fluct ν u) = 0 :=
+  ip_lift_fluct h1 _ u
+
+theorem nsq_lift {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (c : ℝ) : nsq ν (lift c : S → ℝ) = c ^ 2 := by
+  rw [nsq, ip_lift_left, avg_lift h1, sq]
+
+/-- **Variance decomposition** (Prop. 3): `‖u‖²_ν = |A u|² + ‖Q u‖²_ν`. -/
+theorem nsq_eq_sq_avg_add_nsq_fluct {ν : S → ℝ} (h1 : ∑ s, ν s = 1) (u : S → ℝ) :
+    nsq ν u = avg ν u ^ 2 + nsq ν (fluct ν u) := by
+  have h : nsq ν (fluct ν u) = nsq ν u - avg ν u ^ 2 := by
+    unfold nsq fluct proj
+    rw [ip_sub_left, ip_sub_right, ip_sub_right, ip_lift_left, ip_lift_left, ip_lift_right,
+      avg_lift h1]
+    ring
+  linarith
+
+/-- **`|A u|² ≤ ‖u‖²_ν`** (Prop. 3). -/
+theorem sq_avg_le_nsq {ν : S → ℝ} (hν : ∀ s, 0 ≤ ν s) (h1 : ∑ s, ν s = 1) (u : S → ℝ) :
+    avg ν u ^ 2 ≤ nsq ν u := by
+  rw [nsq_eq_sq_avg_add_nsq_fluct h1 u]
+  linarith [nsq_nonneg hν (fluct ν u)]
+
+theorem nsq_proj_le {ν : S → ℝ} (hν : ∀ s, 0 ≤ ν s) (h1 : ∑ s, ν s = 1) (u : S → ℝ) :
+    nsq ν (proj ν u) ≤ nsq ν u := by
+  rw [proj, nsq_lift h1]
+  exact sq_avg_le_nsq hν h1 u
+
+/-- **`‖P‖ = 1`** (Prop. 3): the largest value of `‖P u‖²_ν` over unit vectors `u` is `1`. -/
+theorem isGreatest_nsq_proj {ν : S → ℝ} (hν : ∀ s, 0 ≤ ν s) (h1 : ∑ s, ν s = 1) :
+    IsGreatest {r | ∃ u : S → ℝ, nsq ν u = 1 ∧ nsq ν (proj ν u) = r} 1 := by
+  refine ⟨⟨lift 1, by rw [nsq_lift h1]; norm_num, by rw [proj_lift h1, nsq_lift h1]; norm_num⟩, ?_⟩
+  rintro r ⟨u, hu, rfl⟩
+  rw [← hu]
+  exact nsq_proj_le hν h1 u
+
+end Projection
+
+/-! ### The law of total variance (Prop. 3 integrated over a finite base) -/
+
+section TotalVariance
+
+variable {E Y : Type*} [Fintype E] [Fintype Y] [DecidableEq Y]
+
+/-- The mass `∑_{π p = y} μ p` of the fibre over `y`. -/
+def fibreMass (μ : E → ℝ) (π : E → Y) (y : Y) : ℝ :=
+  ∑ p ∈ univ.filter (fun p => π p = y), μ p
+
+/-- The average of `F` over the fibre over `y`, for the normalised fibre weights
+`μ p / fibreMass μ π y`. -/
+def fibreAvg (μ : E → ℝ) (π : E → Y) (F : E → ℝ) (y : Y) : ℝ :=
+  (∑ p ∈ univ.filter (fun p => π p = y), μ p * F p) / fibreMass μ π y
+
+/-- The variance of `F` over the fibre over `y`, for the normalised fibre weights. -/
+def fibreVar (μ : E → ℝ) (π : E → Y) (F : E → ℝ) (y : Y) : ℝ :=
+  ∑ p ∈ univ.filter (fun p => π p = y), μ p / fibreMass μ π y * (F p - fibreAvg μ π F y) ^ 2
+
+/-- **The law of total variance** (Prop. 3 integrated over the base). For positive weights `μ` on a
+finite total space with fibre map `π` and any centre `m` (for example the mean `∑ μ F`):
+`∑_p μ p (F p − m)² = ∑_y μ_y Var_y F + ∑_y μ_y (A_y F − m)²`, where `μ_y` is the fibre mass and
+`A_y`, `Var_y` are the fibre average and variance. -/
+theorem total_variance {μ : E → ℝ} (hμ : ∀ p, 0 < μ p) (π : E → Y) (F : E → ℝ) (m : ℝ) :
+    ∑ p, μ p * (F p - m) ^ 2 =
+      ∑ y, fibreMass μ π y * fibreVar μ π F y +
+        ∑ y, fibreMass μ π y * (fibreAvg μ π F y - m) ^ 2 := by
+  rw [← Finset.sum_add_distrib, ← Finset.sum_fiberwise Finset.univ π (fun p => μ p * (F p - m) ^ 2)]
+  refine Finset.sum_congr rfl fun y _ => ?_
+  rcases (univ.filter (fun p => π p = y)).eq_empty_or_nonempty with h | h
+  · simp [fibreMass, fibreVar, h]
+  · have hm : 0 < fibreMass μ π y := Finset.sum_pos (fun p _ => hμ p) h
+    have hm' := hm.ne'
+    have h1 : ∑ p ∈ univ.filter (fun p => π p = y), μ p * F p =
+        fibreMass μ π y * fibreAvg μ π F y := by
+      rw [fibreAvg, mul_div_cancel₀ _ hm']
+    have h2 : fibreMass μ π y * fibreVar μ π F y =
+        ∑ p ∈ univ.filter (fun p => π p = y), μ p * (F p - fibreAvg μ π F y) ^ 2 := by
+      rw [fibreVar, Finset.mul_sum]
+      exact Finset.sum_congr rfl fun p _ => by field_simp
+    have h3 : ∑ p ∈ univ.filter (fun p => π p = y), μ p * (F p - m) ^ 2 =
+        ∑ p ∈ univ.filter (fun p => π p = y),
+          (μ p * (F p - fibreAvg μ π F y) ^ 2 + (fibreAvg μ π F y - m) ^ 2 * μ p +
+            2 * (fibreAvg μ π F y - m) * (μ p * F p) -
+            2 * (fibreAvg μ π F y - m) * fibreAvg μ π F y * μ p) :=
+      Finset.sum_congr rfl fun p _ => by ring
+    rw [h3, Finset.sum_sub_distrib, Finset.sum_add_distrib, Finset.sum_add_distrib,
+      ← Finset.mul_sum, ← Finset.mul_sum, ← Finset.mul_sum, h1, ← h2]
+    simp only [fibreMass]
+    ring
+
+end TotalVariance
+
+/-! ## 2. Differentiation of fibre averages (Prop. 5) -/
+
+section Differentiation
+
+variable {S : Type*} [Fintype S]
+
+/-- The density-variation coefficient `κ = ν⁻¹ (ν' + Xᵀ ν)`, the finite form of
+`κ_μ = ρ⁻¹ (∂_μ ρ − ∂_a (ρ B_μ^a))` of (7.1): `ν'` is the parameter derivative of the weights,
+`X` stands for the vertical field `B^a ∂_a`, and `Xᵀ ν` for `−∂_a (ρ B^a)` (the adjoint of `X`
+with respect to the reference counting measure, by `avg_mulVec`). -/
+def kappa (ν ν' : S → ℝ) (X : Matrix S S ℝ) : S → ℝ := fun r => (ν' r + (ν ᵥ* X) r) / ν r
+
+/-- The finite integration by parts: `A (X u) = ∑_r (Xᵀ ν) r * u r`. -/
+theorem avg_mulVec (ν u : S → ℝ) (X : Matrix S S ℝ) : avg ν (X *ᵥ u) = ∑ r, (ν ᵥ* X) r * u r :=
+  Matrix.dotProduct_mulVec ν X u
+
+/-- **Differentiation of an average** (Prop. 5, first identity):
+`∂_t (A_t F_t) = A (H F) + A (κ F)` at `t₀`, with `H F = F' − X F`. -/
+theorem hasDerivAt_avg {ν F : ℝ → S → ℝ} {ν' F' : S → ℝ} {t₀ : ℝ} (X : Matrix S S ℝ)
+    (hpos : ∀ s, ν t₀ s ≠ 0) (hν : ∀ s, HasDerivAt (fun t => ν t s) (ν' s) t₀)
+    (hF : ∀ s, HasDerivAt (fun t => F t s) (F' s) t₀) :
+    HasDerivAt (fun t => avg (ν t) (F t))
+      (avg (ν t₀) (F' - X *ᵥ F t₀) + avg (ν t₀) (kappa (ν t₀) ν' X * F t₀)) t₀ := by
+  have h : HasDerivAt (fun t => avg (ν t) (F t)) (∑ s, (ν' s * F t₀ s + ν t₀ s * F' s)) t₀ := by
+    unfold avg
+    exact HasDerivAt.fun_sum fun s _ => (hν s).mul (hF s)
+  refine h.congr_deriv ?_
+  rw [avg_sub, avg_mulVec]
+  have hk : avg (ν t₀) (kappa (ν t₀) ν' X * F t₀) = ∑ r, (ν' r + (ν t₀ ᵥ* X) r) * F t₀ r := by
+    unfold avg kappa
+    refine Finset.sum_congr rfl fun r _ => ?_
+    simp only [Pi.mul_apply]
+    field_simp [hpos r]
+  rw [hk]
+  simp only [avg, add_mul, Finset.sum_add_distrib]
+  ring
+
+/-- Normalised weights have derivatives summing to zero. -/
+theorem sum_deriv_eq_zero {ν : ℝ → S → ℝ} {ν' : S → ℝ} {t₀ : ℝ} (h1 : ∀ t, ∑ s, ν t s = 1)
+    (hν : ∀ s, HasDerivAt (fun t => ν t s) (ν' s) t₀) : ∑ s, ν' s = 0 := by
+  have h : HasDerivAt (fun t => ∑ s, ν t s) (∑ s, ν' s) t₀ := HasDerivAt.fun_sum fun s _ => hν s
+  have hc : (fun t => ∑ s, ν t s) = fun _ => (1 : ℝ) := funext h1
+  rw [hc] at h
+  exact h.unique (hasDerivAt_const t₀ 1)
+
+/-- **`A κ = 0`** (Prop. 5, second identity), for weights whose derivatives sum to zero and a
+generator with `X 1 = 0`. -/
+theorem avg_kappa_eq_zero {ν ν' : S → ℝ} (X : Matrix S S ℝ) (hpos : ∀ s, ν s ≠ 0)
+    (hν' : ∑ s, ν' s = 0) (hX : X *ᵥ lift 1 = 0) : avg ν (kappa ν ν' X) = 0 := by
+  have h : avg ν (kappa ν ν' X) = ∑ r, ν' r + ∑ r, (ν ᵥ* X) r := by
+    rw [← Finset.sum_add_distrib]
+    unfold avg kappa
+    exact Finset.sum_congr rfl fun r _ => by field_simp [hpos r]
+  have h2 : ∑ r, (ν ᵥ* X) r = 0 := by
+    have := Matrix.dotProduct_mulVec ν X (lift 1)
+    rw [hX, dotProduct_zero] at this
+    simpa [dotProduct, lift] using this.symm
+  rw [h, hν', h2, add_zero]
+
+theorem avg_mul_fluct (ν k u : S → ℝ) :
+    avg ν (k * fluct ν u) = avg ν (k * u) - avg ν u * avg ν k := by
+  unfold fluct proj
+  generalize avg ν u = a
+  simp only [avg, lift, Pi.mul_apply, Pi.sub_apply, Finset.mul_sum, ← Finset.sum_sub_distrib]
+  exact Finset.sum_congr rfl fun s _ => by ring
+
+/-- **The commutator identity** (Prop. 5, third identity):
+`∂_t (A F) − A (H F) = A (κ Q F)`. -/
+theorem deriv_avg_sub_avg_horiz {ν F : ℝ → S → ℝ} {ν' F' : S → ℝ} {t₀ : ℝ}
+    (X : Matrix S S ℝ) (hpos : ∀ s, 0 < ν t₀ s) (h1 : ∀ t, ∑ s, ν t s = 1)
+    (hX : X *ᵥ lift 1 = 0) (hν : ∀ s, HasDerivAt (fun t => ν t s) (ν' s) t₀)
+    (hF : ∀ s, HasDerivAt (fun t => F t s) (F' s) t₀) :
+    deriv (fun t => avg (ν t) (F t)) t₀ - avg (ν t₀) (F' - X *ᵥ F t₀) =
+      avg (ν t₀) (kappa (ν t₀) ν' X * fluct (ν t₀) (F t₀)) := by
+  have hne : ∀ s, ν t₀ s ≠ 0 := fun s => (hpos s).ne'
+  rw [(hasDerivAt_avg X hne hν hF).deriv, avg_mul_fluct,
+    avg_kappa_eq_zero X hne (sum_deriv_eq_zero h1 hν) hX, mul_zero, sub_zero]
+  ring
+
+/-- **Prop. 5** (finite fibre), bundled: the differentiation formula, `A κ = 0` and the
+commutator identity. -/
+theorem differentiation_of_averages {ν F : ℝ → S → ℝ} {ν' F' : S → ℝ} {t₀ : ℝ}
+    (X : Matrix S S ℝ) (hpos : ∀ s, 0 < ν t₀ s) (h1 : ∀ t, ∑ s, ν t s = 1)
+    (hX : X *ᵥ lift 1 = 0) (hν : ∀ s, HasDerivAt (fun t => ν t s) (ν' s) t₀)
+    (hF : ∀ s, HasDerivAt (fun t => F t s) (F' s) t₀) :
+    HasDerivAt (fun t => avg (ν t) (F t))
+        (avg (ν t₀) (F' - X *ᵥ F t₀) + avg (ν t₀) (kappa (ν t₀) ν' X * F t₀)) t₀ ∧
+      avg (ν t₀) (kappa (ν t₀) ν' X) = 0 ∧
+      deriv (fun t => avg (ν t) (F t)) t₀ - avg (ν t₀) (F' - X *ᵥ F t₀) =
+        avg (ν t₀) (kappa (ν t₀) ν' X * fluct (ν t₀) (F t₀)) :=
+  ⟨hasDerivAt_avg X (fun s => (hpos s).ne') hν hF,
+    avg_kappa_eq_zero X (fun s => (hpos s).ne') (sum_deriv_eq_zero h1 hν) hX,
+    deriv_avg_sub_avg_horiz X hpos h1 hX hν hF⟩
+
+end Differentiation
+
+/-! ## 3. Orthonormal eigenbases (the finite form of (8.4)–(8.7)) -/
+
+section Eigen
+
+variable {S : Type*} [Fintype S]
+
+theorem ip_sum_smul_left {ι : Type*} (t : Finset ι) (ν : S → ℝ) (c : ι → ℝ) (e : ι → S → ℝ)
+    (v : S → ℝ) : ip ν (∑ i ∈ t, c i • e i) v = ∑ i ∈ t, c i * ip ν (e i) v := by
+  simp only [ip, Finset.sum_apply, Pi.smul_apply, smul_eq_mul, Finset.mul_sum, Finset.sum_mul]
+  conv_lhs => rw [Finset.sum_comm]
+  exact Finset.sum_congr rfl fun i _ => Finset.sum_congr rfl fun s _ => by ring
+
+/-- A `ν`-orthonormal eigenbasis of a matrix `L`, indexed by `ι`: vectors `vec i` with
+`⟨vec i, vec j⟩_ν = δ_ij`, `L (vec i) = val i • vec i`, and every profile is the sum of its
+expansion `u = ∑_i ⟨vec i, u⟩_ν • vec i`. -/
+structure EigenBasis (ν : S → ℝ) (L : Matrix S S ℝ) (ι : Type*) [Fintype ι] [DecidableEq ι] where
+  /-- the eigenvectors -/
+  vec : ι → S → ℝ
+  /-- the eigenvalues -/
+  val : ι → ℝ
+  orthonormal : ∀ i j, ip ν (vec i) (vec j) = if i = j then 1 else 0
+  eigen : ∀ i, L *ᵥ vec i = val i • vec i
+  expand : ∀ u : S → ℝ, u = ∑ i, ip ν (vec i) u • vec i
+
+namespace EigenBasis
+
+variable {ν : S → ℝ} {L : Matrix S S ℝ} {ι : Type*} [Fintype ι] [DecidableEq ι]
+
+theorem ip_vec_sum_finset (b : EigenBasis ν L ι) (t : Finset ι) (a : ι → ℝ) (j : ι) :
+    ip ν (b.vec j) (∑ i ∈ t, a i • b.vec i) = if j ∈ t then a j else 0 := by
+  rw [ip_comm, ip_sum_smul_left]
+  simp [b.orthonormal]
+
+theorem ip_vec_sum (b : EigenBasis ν L ι) (a : ι → ℝ) (j : ι) :
+    ip ν (b.vec j) (∑ i, a i • b.vec i) = a j := by
+  rw [b.ip_vec_sum_finset]
+  simp
+
+/-- Parseval for an orthonormal combination: `‖∑ a_i e_i‖²_ν = ∑ a_i²`. -/
+theorem nsq_sum (b : EigenBasis ν L ι) (a : ι → ℝ) : nsq ν (∑ i, a i • b.vec i) = ∑ i, a i ^ 2 := by
+  rw [nsq, ip_sum_smul_left]
+  exact Finset.sum_congr rfl fun i _ => by rw [b.ip_vec_sum, sq]
+
+/-- **Parseval** ((8.7)): `‖u‖²_ν = ∑_n |⟨e_n, u⟩_ν|²`. -/
+theorem nsq_eq (b : EigenBasis ν L ι) (u : S → ℝ) : nsq ν u = ∑ i, ip ν (b.vec i) u ^ 2 := by
+  conv_lhs => rw [b.expand u]
+  rw [b.nsq_sum]
+
+theorem mulVec_eq (b : EigenBasis ν L ι) (u : S → ℝ) :
+    L *ᵥ u = ∑ i, (b.val i * ip ν (b.vec i) u) • b.vec i := by
+  conv_lhs => rw [b.expand u]
+  rw [Matrix.mulVec_sum]
+  refine Finset.sum_congr rfl fun i _ => ?_
+  rw [Matrix.mulVec_smul, b.eigen, smul_smul, mul_comm]
+
+/-- **The energy in the eigenbasis**: `⟨u, L u⟩_ν = ∑_n λ_n |⟨e_n, u⟩_ν|²`. -/
+theorem ip_mulVec (b : EigenBasis ν L ι) (u : S → ℝ) :
+    ip ν u (L *ᵥ u) = ∑ i, b.val i * ip ν (b.vec i) u ^ 2 := by
+  rw [b.mulVec_eq, ip_comm ν u, ip_sum_smul_left]
+  exact Finset.sum_congr rfl fun i _ => by ring
+
+theorem ip_vec_mulVec (b : EigenBasis ν L ι) (u : S → ℝ) (j : ι) :
+    ip ν (b.vec j) (L *ᵥ u) = b.val j * ip ν (b.vec j) u := by
+  rw [b.mulVec_eq, b.ip_vec_sum]
+
+theorem vec_ne_zero (b : EigenBasis ν L ι) (i : ι) : b.vec i ≠ 0 := by
+  intro h
+  have := b.orthonormal i i
+  rw [h] at this
+  simp [ip] at this
+
+end EigenBasis
+
+/-- **A `ν`-symmetric matrix has a `ν`-orthonormal eigenbasis**, from Mathlib's spectral theorem for
+Hermitian matrices applied to `D^{1/2} L D^{-1/2}`, `D = diag ν`. -/
+theorem exists_eigenBasis [DecidableEq S] {ν : S → ℝ} (hν : ∀ s, 0 < ν s) {L : Matrix S S ℝ}
+    (hsymm : ∀ s r, ν s * L s r = ν r * L r s) : Nonempty (EigenBasis ν L S) := by
+  set d : S → ℝ := fun s => Real.sqrt (ν s) with hd_def
+  have hd : ∀ s, 0 < d s := fun s => Real.sqrt_pos.2 (hν s)
+  have hdd : ∀ s, d s * d s = ν s := fun s => Real.mul_self_sqrt (hν s).le
+  set M : Matrix S S ℝ := Matrix.of fun s r => d s * L s r / d r with hM_def
+  have hM : M.IsHermitian := by
+    refine Matrix.IsHermitian.ext fun i j => ?_
+    simp only [hM_def, Matrix.of_apply, star_trivial]
+    rw [div_eq_div_iff (hd i).ne' (hd j).ne']
+    calc d j * L j i * d j = (d j * d j) * L j i := by ring
+      _ = ν j * L j i := by rw [hdd]
+      _ = ν i * L i j := (hsymm i j).symm
+      _ = d i * L i j * d i := by rw [← hdd i]; ring
+  set U : Matrix S S ℝ := (hM.eigenvectorUnitary : Matrix S S ℝ) with hU_def
+  have hUU : star U * U = 1 := Unitary.coe_star_mul_self _
+  have hUU' : U * star U = 1 := Unitary.coe_mul_star_self _
+  have hcol : ∀ j, (fun s => U s j) = (hM.eigenvectorBasis j).ofLp :=
+    fun j => funext fun s => hM.eigenvectorUnitary_apply s j
+  refine ⟨⟨fun i s => U s i / d s, hM.eigenvalues, ?_, ?_, ?_⟩⟩
+  · intro i j
+    have h := congrFun (congrFun hUU i) j
+    simp only [Matrix.mul_apply, Matrix.star_apply, star_trivial, Matrix.one_apply] at h
+    rw [← h]
+    refine Finset.sum_congr rfl fun s _ => ?_
+    have hs := (hd s).ne'
+    rw [← hdd s]
+    field_simp
+  · intro i
+    have h := hM.mulVec_eigenvectorBasis i
+    rw [← hcol i] at h
+    funext s
+    have hs := congrFun h s
+    simp only [Matrix.mulVec, dotProduct, hM_def, Matrix.of_apply, Pi.smul_apply,
+      smul_eq_mul] at hs ⊢
+    have key : (∑ x, L s x * (U x i / d x)) * d s = hM.eigenvalues i * U s i := by
+      rw [← hs, Finset.sum_mul]
+      exact Finset.sum_congr rfl fun x _ => by ring
+    rw [mul_div_assoc', eq_div_iff (hd s).ne']
+    exact key
+  · intro u
+    funext s
+    have key : ∀ r, ∑ i, U s i * U r i = if s = r then 1 else 0 := fun r => by
+      have h := congrFun (congrFun hUU' s) r
+      simpa only [Matrix.mul_apply, Matrix.star_apply, star_trivial, Matrix.one_apply] using h
+    have hip : ∀ i, ip ν (fun s => U s i / d s) u = ∑ r, U r i * (d r * u r) := fun i =>
+      Finset.sum_congr rfl fun r _ => by
+        have hr := (hd r).ne'
+        rw [← hdd r]
+        field_simp
+    simp only [Finset.sum_apply, Pi.smul_apply, smul_eq_mul, hip]
+    have hs := (hd s).ne'
+    calc u s = (∑ r, (if s = r then (1 : ℝ) else 0) * (d r * u r)) / d s := by
+          simp only [ite_mul, one_mul, zero_mul, Finset.sum_ite_eq, Finset.mem_univ, if_true]
+          field_simp
+      _ = (∑ r, (∑ i, U s i * U r i) * (d r * u r)) / d s := by simp only [key]
+      _ = ∑ i, (∑ r, U r i * (d r * u r)) * (U s i / d s) := by
+          simp only [Finset.sum_mul, Finset.sum_div]
+          conv_lhs => rw [Finset.sum_comm]
+          exact Finset.sum_congr rfl fun i _ => Finset.sum_congr rfl fun r _ => by ring
+
+end Eigen
+
+/-! ## 4. The fibre Poincaré inequality from a spectral gap (Prop. 7) -/
+
+section Poincare
+
+variable {S : Type*} [Fintype S]
+
+/-- **Fibre Poincaré inequality from an eigenbasis** (Prop. 7, the source's proof): if the
+eigenvectors with eigenvalue `0` are constant, `L 1 = 0`, and every nonzero eigenvalue is at least
+`λ₁ > 0`, then `‖u − A u‖²_ν ≤ λ₁⁻¹ ⟨u, L u⟩_ν`. -/
+theorem poincare_of_eigenBasis {ν : S → ℝ} {L : Matrix S S ℝ} {ι : Type*} [Fintype ι]
+    [DecidableEq ι] (b : EigenBasis ν L ι) (h1 : ∑ s, ν s = 1) (hL1 : L *ᵥ lift 1 = 0)
+    (hker : ∀ i, b.val i = 0 → ∃ c, b.vec i = lift c) {lam₁ : ℝ} (hlam : 0 < lam₁)
+    (hgap : ∀ i, b.val i ≠ 0 → lam₁ ≤ b.val i) (u : S → ℝ) :
+    nsq ν (fluct ν u) ≤ lam₁⁻¹ * ip ν u (L *ᵥ u) := by
+  rw [b.nsq_eq, b.ip_mulVec, Finset.mul_sum]
+  refine Finset.sum_le_sum fun i _ => ?_
+  by_cases hi : b.val i = 0
+  · obtain ⟨c, hc⟩ := hker i hi
+    rw [hc, ip_lift_fluct h1, hi]
+    simp
+  · have horth : avg ν (b.vec i) = 0 := by
+      have h := b.ip_vec_mulVec (lift 1) i
+      rw [hL1, ip_zero_right, ip_lift_right, one_mul] at h
+      exact (mul_eq_zero.1 h.symm).resolve_left hi
+    have hc : ip ν (b.vec i) (fluct ν u) = ip ν (b.vec i) u := by
+      rw [fluct, ip_sub_right, proj, ip_lift_right, horth, mul_zero, sub_zero]
+    rw [hc]
+    have h2 : 1 ≤ lam₁⁻¹ * b.val i := (one_le_inv_mul₀ hlam).2 (hgap i hi)
+    calc ip ν (b.vec i) u ^ 2 ≤ (lam₁⁻¹ * b.val i) * ip ν (b.vec i) u ^ 2 :=
+          le_mul_of_one_le_left (sq_nonneg _) h2
+      _ = lam₁⁻¹ * (b.val i * ip ν (b.vec i) u ^ 2) := by ring
+
+/-- **Fibre Poincaré inequality** (Prop. 7). Let `L` be symmetric for `⟨·,·⟩_ν`, with `L 1 = 0`,
+kernel contained in the constants, and every nonzero eigenvalue at least `λ₁ > 0`. Then
+`‖u − A u‖²_ν ≤ λ₁⁻¹ ⟨u, L u⟩_ν`. The eigenbasis is produced by `exists_eigenBasis`. -/
+theorem poincare [DecidableEq S] {ν : S → ℝ} (hν : ∀ s, 0 < ν s) (h1 : ∑ s, ν s = 1)
+    {L : Matrix S S ℝ} (hsymm : ∀ s r, ν s * L s r = ν r * L r s) (hL1 : L *ᵥ lift 1 = 0)
+    (hker : ∀ v, L *ᵥ v = 0 → ∃ c, v = lift c) {lam₁ : ℝ} (hlam : 0 < lam₁)
+    (hgap : ∀ (μ : ℝ) (v : S → ℝ), v ≠ 0 → L *ᵥ v = μ • v → μ ≠ 0 → lam₁ ≤ μ) (u : S → ℝ) :
+    nsq ν (fluct ν u) ≤ lam₁⁻¹ * ip ν u (L *ᵥ u) := by
+  obtain ⟨b⟩ := exists_eigenBasis hν hsymm
+  refine poincare_of_eigenBasis b h1 hL1 (fun i hi => hker _ ?_) hlam
+    (fun i hi => hgap _ _ (b.vec_ne_zero i) (b.eigen i) hi) u
+  rw [b.eigen i, hi, zero_smul]
+
+/-- **Nonnegativity of the energy** (part of Prop. 6), under the hypotheses of `poincare`. -/
+theorem ip_mulVec_nonneg [DecidableEq S] {ν : S → ℝ} (hν : ∀ s, 0 < ν s) (h1 : ∑ s, ν s = 1)
+    {L : Matrix S S ℝ} (hsymm : ∀ s r, ν s * L s r = ν r * L r s) (hL1 : L *ᵥ lift 1 = 0)
+    (hker : ∀ v, L *ᵥ v = 0 → ∃ c, v = lift c) {lam₁ : ℝ} (hlam : 0 < lam₁)
+    (hgap : ∀ (μ : ℝ) (v : S → ℝ), v ≠ 0 → L *ᵥ v = μ • v → μ ≠ 0 → lam₁ ≤ μ) (u : S → ℝ) :
+    0 ≤ ip ν u (L *ᵥ u) := by
+  have h := poincare hν h1 hsymm hL1 hker hlam hgap u
+  have h0 : 0 ≤ nsq ν (fluct ν u) := nsq_nonneg (fun s => (hν s).le) _
+  exact (mul_nonneg_iff_of_pos_left (inv_pos.2 hlam)).1 (h0.trans h)
+
+end Poincare
+
+/-! ## 5. The spectral truncation bound (Prop. 8) -/
+
+section Truncation
+
+variable {S : Type*} [Fintype S] {ν : S → ℝ} {L : Matrix S S ℝ} {ι : Type*} [Fintype ι]
+  [DecidableEq ι]
+
+namespace EigenBasis
+
+/-- The projection `P_T` onto the span of the retained eigenvectors `{e_i : i ∈ T}`. -/
+def trunc (b : EigenBasis ν L ι) (T : Finset ι) (u : S → ℝ) : S → ℝ :=
+  ∑ i ∈ T, ip ν (b.vec i) u • b.vec i
+
+/-- The spectral power `L^{s/2} u = ∑_n λ_n^{s/2} ⟨e_n, u⟩_ν e_n` in the eigenbasis `b`
+(real powers `Real.rpow`; this is `L^{s/2}` when the eigenvalues are nonnegative, as for a fibre
+Laplacian). -/
+def fpow (b : EigenBasis ν L ι) (s : ℝ) (u : S → ℝ) : S → ℝ :=
+  ∑ i, (b.val i ^ (s / 2) * ip ν (b.vec i) u) • b.vec i
+
+/-- The spectral power with `s = 2` is `L` itself. -/
+theorem fpow_two (b : EigenBasis ν L ι) (u : S → ℝ) : b.fpow 2 u = L *ᵥ u := by
+  rw [b.mulVec_eq, fpow]
+  norm_num
+
+/-- The spectral power with `s = 0` is the identity. -/
+theorem fpow_zero (b : EigenBasis ν L ι) (u : S → ℝ) : b.fpow 0 u = u := by
+  simp only [fpow, zero_div, Real.rpow_zero, one_mul]
+  exact (b.expand u).symm
+
+/-- **Spectral truncation bound** (Prop. 8). If every omitted eigenvalue (`i ∉ T`) is at least
+`Λ > 0` and `s ≥ 0`, then `‖(I − P_T) u‖²_ν ≤ Λ^{−s} ‖L^{s/2} u‖²_ν`. -/
+theorem truncation (b : EigenBasis ν L ι) (T : Finset ι) {Λ s : ℝ} (hΛ : 0 < Λ) (hs : 0 ≤ s)
+    (hgap : ∀ i, i ∉ T → Λ ≤ b.val i) (u : S → ℝ) :
+    nsq ν (u - b.trunc T u) ≤ Λ ^ (-s) * nsq ν (b.fpow s u) := by
+  rw [b.nsq_eq, fpow, b.nsq_sum, Finset.mul_sum]
+  refine Finset.sum_le_sum fun i _ => ?_
+  rw [ip_sub_right, trunc, b.ip_vec_sum_finset]
+  by_cases hi : i ∈ T
+  · simp only [hi, if_true, sub_self]
+    rw [zero_pow two_ne_zero]
+    exact mul_nonneg (Real.rpow_nonneg hΛ.le _) (sq_nonneg _)
+  · simp only [hi, if_false, sub_zero]
+    have hv : Λ ≤ b.val i := hgap i hi
+    have hv0 : 0 ≤ b.val i := hΛ.le.trans hv
+    have hpow : (b.val i ^ (s / 2)) ^ 2 = b.val i ^ s := by
+      rw [← Real.rpow_natCast, ← Real.rpow_mul hv0]
+      norm_num
+    have hΛs : 0 < Λ ^ s := Real.rpow_pos_of_pos hΛ s
+    have hle : Λ ^ s ≤ b.val i ^ s := Real.rpow_le_rpow hΛ.le hv hs
+    have h1 : 1 ≤ Λ ^ (-s) * b.val i ^ s := by
+      rw [Real.rpow_neg hΛ.le, ← div_eq_inv_mul, one_le_div hΛs]
+      exact hle
+    calc ip ν (b.vec i) u ^ 2 ≤ (Λ ^ (-s) * b.val i ^ s) * ip ν (b.vec i) u ^ 2 :=
+          le_mul_of_one_le_left (sq_nonneg _) h1
+      _ = Λ ^ (-s) * (b.val i ^ (s / 2) * ip ν (b.vec i) u) ^ 2 := by rw [mul_pow, hpow]; ring
+
+/-- **Spectral truncation bound for an increasing eigenvalue list** (Prop. 8 as stated in the
+source): with eigenvalues `λ_0 ≤ λ_1 ≤ …` indexed by `Fin m`, `P_N` the projection onto the modes
+with index `< k = N + 1`, and `λ_k > 0`, `‖(I − P_N) u‖²_ν ≤ λ_k^{−s} ‖L^{s/2} u‖²_ν`. -/
+theorem truncation_sorted {m : ℕ} (b : EigenBasis ν L (Fin m)) (hmono : Monotone b.val)
+    (k : Fin m) (hk : 0 < b.val k) {s : ℝ} (hs : 0 ≤ s) (u : S → ℝ) :
+    nsq ν (u - b.trunc (univ.filter (fun i => i < k)) u) ≤ b.val k ^ (-s) * nsq ν (b.fpow s u) :=
+  b.truncation _ hk hs (fun i hi => hmono (by simpa using hi)) u
+
+end EigenBasis
+
+end Truncation
+
+/-! ## 6. The commutator bound (9.3)–(9.4) -/
+
+section Commutator
+
+variable {S : Type*} [Fintype S]
+
+/-- Weighted Cauchy–Schwarz, squared form. -/
+theorem sq_ip_le {ν : S → ℝ} (hν : ∀ s, 0 ≤ ν s) (u v : S → ℝ) :
+    ip ν u v ^ 2 ≤ nsq ν u * nsq ν v := by
+  have e : ∀ s, Real.sqrt (ν s) * Real.sqrt (ν s) = ν s := fun s => Real.mul_self_sqrt (hν s)
+  have h := Finset.sum_mul_sq_le_sq_mul_sq Finset.univ (fun s => Real.sqrt (ν s) * u s)
+    (fun s => Real.sqrt (ν s) * v s)
+  have h1 : ∑ s, Real.sqrt (ν s) * u s * (Real.sqrt (ν s) * v s) = ip ν u v :=
+    Finset.sum_congr rfl fun s _ => by linear_combination (u s * v s) * e s
+  have h2 : ∀ w : S → ℝ, ∑ s, (Real.sqrt (ν s) * w s) ^ 2 = nsq ν w := fun w =>
+    Finset.sum_congr rfl fun s _ => by linear_combination (w s * w s) * e s
+  rw [h1, h2, h2] at h
+  exact h
+
+/-- **Weighted Cauchy–Schwarz**: `|⟨u, v⟩_ν| ≤ ‖u‖_ν ‖v‖_ν`. -/
+theorem abs_ip_le {ν : S → ℝ} (hν : ∀ s, 0 ≤ ν s) (u v : S → ℝ) :
+    |ip ν u v| ≤ Real.sqrt (nsq ν u) * Real.sqrt (nsq ν v) := by
+  rw [← Real.sqrt_mul (nsq_nonneg hν u)]
+  exact Real.abs_le_sqrt (sq_ip_le hν u v)
+
+/-- **The commutator bound (9.3)**: `|∂_t (A F) − A (H F)| ≤ ‖κ‖_ν ‖Q F‖_ν`; the left side equals
+`|⟨κ, Q F⟩_ν|` by Prop. 5. -/
+theorem commutator_bound {ν F : ℝ → S → ℝ} {ν' F' : S → ℝ} {t₀ : ℝ} (X : Matrix S S ℝ)
+    (hpos : ∀ s, 0 < ν t₀ s) (h1 : ∀ t, ∑ s, ν t s = 1) (hX : X *ᵥ lift 1 = 0)
+    (hν : ∀ s, HasDerivAt (fun t => ν t s) (ν' s) t₀)
+    (hF : ∀ s, HasDerivAt (fun t => F t s) (F' s) t₀) :
+    |deriv (fun t => avg (ν t) (F t)) t₀ - avg (ν t₀) (F' - X *ᵥ F t₀)| ≤
+      Real.sqrt (nsq (ν t₀) (kappa (ν t₀) ν' X)) *
+        Real.sqrt (nsq (ν t₀) (fluct (ν t₀) (F t₀))) := by
+  rw [deriv_avg_sub_avg_horiz X hpos h1 hX hν hF, avg_mul]
+  exact abs_ip_le (fun s => (hpos s).le) _ _
+
+/-- **The commutator bound (9.4)**: under the hypotheses of `poincare` on `L` (for the weights at
+`t₀`), `|∂_t (A F) − A (H F)| ≤ ‖κ‖_ν λ₁^{−1/2} ⟨F, L F⟩_ν^{1/2}`. -/
+theorem commutator_bound_energy [DecidableEq S] {ν F : ℝ → S → ℝ} {ν' F' : S → ℝ} {t₀ : ℝ}
+    (X : Matrix S S ℝ) (hpos : ∀ s, 0 < ν t₀ s) (h1 : ∀ t, ∑ s, ν t s = 1)
+    (hX : X *ᵥ lift 1 = 0) (hν : ∀ s, HasDerivAt (fun t => ν t s) (ν' s) t₀)
+    (hF : ∀ s, HasDerivAt (fun t => F t s) (F' s) t₀) {L : Matrix S S ℝ}
+    (hsymm : ∀ s r, ν t₀ s * L s r = ν t₀ r * L r s) (hL1 : L *ᵥ lift 1 = 0)
+    (hker : ∀ v, L *ᵥ v = 0 → ∃ c, v = lift c) {lam₁ : ℝ} (hlam : 0 < lam₁)
+    (hgap : ∀ (μ : ℝ) (v : S → ℝ), v ≠ 0 → L *ᵥ v = μ • v → μ ≠ 0 → lam₁ ≤ μ) :
+    |deriv (fun t => avg (ν t) (F t)) t₀ - avg (ν t₀) (F' - X *ᵥ F t₀)| ≤
+      Real.sqrt (nsq (ν t₀) (kappa (ν t₀) ν' X)) *
+        ((Real.sqrt lam₁)⁻¹ * Real.sqrt (ip (ν t₀) (F t₀) (L *ᵥ F t₀))) := by
+  refine (commutator_bound X hpos h1 hX hν hF).trans
+    (mul_le_mul_of_nonneg_left ?_ (Real.sqrt_nonneg _))
+  rw [← Real.sqrt_inv, ← Real.sqrt_mul (inv_nonneg.2 hlam.le)]
+  exact Real.sqrt_le_sqrt (poincare hpos (h1 t₀) hsymm hL1 hker hlam hgap (F t₀))
+
+end Commutator
+
+/-! ## 7. κ for Gibbs weights, and the Gaussian κ_J lemma -/
+
+section Gibbs
+
+variable {S : Type*} [Fintype S]
+
+/-- Normalised Gibbs weights `exp(−V s) / ∑_r exp(−V r)`. -/
+def gibbs (V : S → ℝ) : S → ℝ := fun s => Real.exp (-V s) / ∑ r, Real.exp (-V r)
+
+theorem gibbs_Z_pos [Nonempty S] (V : S → ℝ) : 0 < ∑ r, Real.exp (-V r) :=
+  Finset.sum_pos (fun _ _ => Real.exp_pos _) Finset.univ_nonempty
+
+theorem gibbs_pos [Nonempty S] (V : S → ℝ) (s : S) : 0 < gibbs V s :=
+  div_pos (Real.exp_pos _) (gibbs_Z_pos V)
+
+theorem gibbs_sum [Nonempty S] (V : S → ℝ) : ∑ s, gibbs V s = 1 := by
+  simp only [gibbs, ← Finset.sum_div]
+  exact div_self (gibbs_Z_pos V).ne'
+
+/-- The derivative of Gibbs weights: `∂_t ν_t = −ν_t (V' − A V')`. -/
+theorem hasDerivAt_gibbs [Nonempty S] {V : ℝ → S → ℝ} {V' : S → ℝ} {t₀ : ℝ}
+    (hV : ∀ s, HasDerivAt (fun t => V t s) (V' s) t₀) (s : S) :
+    HasDerivAt (fun t => gibbs (V t) s) (-(gibbs (V t₀) s * (V' s - avg (gibbs (V t₀)) V'))) t₀ := by
+  have hZ : HasDerivAt (fun t => ∑ r, Real.exp (-V t r)) (∑ r, Real.exp (-V t₀ r) * -V' r) t₀ :=
+    HasDerivAt.fun_sum fun r _ => (hV r).neg.exp
+  have hN : HasDerivAt (fun t => Real.exp (-V t s)) (Real.exp (-V t₀ s) * -V' s) t₀ :=
+    (hV s).neg.exp
+  have h := hN.fun_div hZ (gibbs_Z_pos (V t₀)).ne'
+  refine h.congr_deriv ?_
+  set Z := ∑ r, Real.exp (-V t₀ r) with hZ_def
+  have hZ0 : Z ≠ 0 := (gibbs_Z_pos (V t₀)).ne'
+  have hA : avg (gibbs (V t₀)) V' = (∑ r, Real.exp (-V t₀ r) * V' r) / Z := by
+    simp only [avg, gibbs, ← hZ_def, Finset.sum_div]
+    exact Finset.sum_congr rfl fun r _ => by ring
+  have hB : ∑ r, Real.exp (-V t₀ r) * -V' r = -(∑ r, Real.exp (-V t₀ r) * V' r) := by
+    rw [← Finset.sum_neg_distrib]
+    exact Finset.sum_congr rfl fun r _ => by ring
+  rw [hA, hB]
+  simp only [gibbs, ← hZ_def]
+  field_simp
+  ring
+
+/-- **κ for Gibbs weights** (the Gibbs part of `κ`): with `X = 0` and `ν = exp(−V)/Z`,
+`κ = −(V' − A V')`. -/
+theorem kappa_gibbs [Nonempty S] (V V' : S → ℝ) :
+    kappa (gibbs V) (fun s => -(gibbs V s * (V' s - avg (gibbs V) V'))) 0 =
+      fun s => -(V' s - avg (gibbs V) V') := by
+  funext s
+  simp only [kappa, Matrix.vecMul_zero, Pi.zero_apply, add_zero]
+  field_simp [(gibbs_pos V s).ne']
+
+/-- **Prop. 5 for Gibbs weights**: `∂_t (A_t F_t) = A F' − ⟨Q V', F⟩_ν`, i.e. the derivative of a
+Gibbs average is the average of the derivative minus the covariance with `V'`. -/
+theorem hasDerivAt_avg_gibbs [Nonempty S] {V F : ℝ → S → ℝ} {V' F' : S → ℝ} {t₀ : ℝ}
+    (hV : ∀ s, HasDerivAt (fun t => V t s) (V' s) t₀)
+    (hF : ∀ s, HasDerivAt (fun t => F t s) (F' s) t₀) :
+    HasDerivAt (fun t => avg (gibbs (V t)) (F t))
+      (avg (gibbs (V t₀)) F' - ip (gibbs (V t₀)) (fluct (gibbs (V t₀)) V') (F t₀)) t₀ := by
+  have h := hasDerivAt_avg (0 : Matrix S S ℝ) (fun s => (gibbs_pos (V t₀) s).ne')
+    (hasDerivAt_gibbs hV) hF
+  rw [kappa_gibbs] at h
+  refine h.congr_deriv ?_
+  rw [Matrix.zero_mulVec, sub_zero, avg_mul]
+  simp only [ip, fluct, proj, lift, Pi.sub_apply]
+  rw [sub_eq_add_neg, ← Finset.sum_neg_distrib]
+  congr 1
+  exact Finset.sum_congr rfl fun s _ => by ring
+
+end Gibbs
+
+section Gaussian
+
+variable {S : Type*} [Fintype S] {n m : Type*} [Fintype n] [Fintype m]
+
+/-- The quadratic action `V_t(s) = ½ (φ s + t w) · K (φ s + t w)` of the fibre point `φ s` moved
+rigidly by `t w` (with `w = J η`, this is the motion of the lift `φ = J y + ψ` along the coarse
+direction `η` at fixed `ψ`). -/
+def quadAction (K : Matrix n n ℝ) (φ : S → n → ℝ) (w : n → ℝ) (t : ℝ) (s : S) : ℝ :=
+  (φ s + t • w) ⬝ᵥ (K *ᵥ (φ s + t • w)) / 2
+
+omit [Fintype S] in
+theorem hasDerivAt_quadAction (K : Matrix n n ℝ) (hK : Kᵀ = K) (φ : S → n → ℝ) (w : n → ℝ)
+    (s : S) : HasDerivAt (fun t => quadAction K φ w t s) ((K *ᵥ w) ⬝ᵥ φ s) 0 := by
+  have hsym : w ⬝ᵥ (K *ᵥ φ s) = (K *ᵥ w) ⬝ᵥ φ s := by
+    rw [Matrix.dotProduct_mulVec, ← Matrix.mulVec_transpose, hK]
+  have hsym' : φ s ⬝ᵥ (K *ᵥ w) = (K *ᵥ w) ⬝ᵥ φ s := dotProduct_comm _ _
+  have hexp : (fun t => quadAction K φ w t s) = fun t =>
+      φ s ⬝ᵥ (K *ᵥ φ s) / 2 + t * ((K *ᵥ w) ⬝ᵥ φ s) + t ^ 2 * (w ⬝ᵥ (K *ᵥ w) / 2) := by
+    funext t
+    simp only [quadAction, Matrix.mulVec_add, Matrix.mulVec_smul, dotProduct_add, add_dotProduct,
+      dotProduct_smul, smul_dotProduct, smul_eq_mul, hsym, hsym']
+    ring
+  rw [hexp]
+  exact ((((hasDerivAt_id' (0 : ℝ)).mul_const ((K *ᵥ w) ⬝ᵥ φ s)).const_add
+    (φ s ⬝ᵥ (K *ᵥ φ s) / 2)).add ((hasDerivAt_pow 2 (0 : ℝ)).mul_const
+      (w ⬝ᵥ (K *ᵥ w) / 2))).congr_deriv (by simp)
+
+/-- **The κ_J formula on a finite sample of a fibre.** Finitely many points `φ s` of a fibre are
+moved rigidly along `w = J η` and carry the Gibbs weights `∝ exp(−½ φ·Kφ)` (`K` symmetric). Then
+the weights are differentiable at `t = 0`, and with `X = 0` (the connection that moves each point
+rigidly) the coefficient of Prop. 5 is `κ s = −(K w)·(φ s − E φ)`, where `E φ = ∑_r ν r φ r`. For
+a Gaussian fibre law, `E_y φ = J_* y` (standard; not formalised here) and this is `κ_J`. -/
+theorem kappa_quadAction_sample [Nonempty S] (K : Matrix n n ℝ) (hK : Kᵀ = K) (φ : S → n → ℝ)
+    (w : n → ℝ) :
+    ∃ ν' : S → ℝ, (∀ s, HasDerivAt (fun t => gibbs (quadAction K φ w t) s) (ν' s) 0) ∧
+      kappa (gibbs (quadAction K φ w 0)) ν' 0 =
+        fun s => -((K *ᵥ w) ⬝ᵥ (φ s - ∑ r, gibbs (quadAction K φ w 0) r • φ r)) := by
+  refine ⟨fun s => -(gibbs (quadAction K φ w 0) s * ((fun r => (K *ᵥ w) ⬝ᵥ φ r) s -
+      avg (gibbs (quadAction K φ w 0)) (fun r => (K *ᵥ w) ⬝ᵥ φ r))),
+    fun s => hasDerivAt_gibbs (V := quadAction K φ w) (fun r => hasDerivAt_quadAction K hK φ w r) s,
+    ?_⟩
+  rw [kappa_gibbs]
+  funext s
+  congr 1
+  simp only [avg, dotProduct_sub, dotProduct_sum, dotProduct_smul, smul_eq_mul]
+
+variable [DecidableEq n] [DecidableEq m]
+
+/-- The conditional-mean lift `J_* = K⁻¹ Aᵀ (A K⁻¹ Aᵀ)⁻¹`. For a Gaussian with precision `K`,
+`J_* y` is the conditional mean of `φ` given `A φ = y`; that identification is not formalised here
+(only the minimiser property `condMeanLift_minimises`). -/
+def condMeanLift (K : Matrix n n ℝ) (A : Matrix m n ℝ) : Matrix n m ℝ :=
+  K⁻¹ * Aᵀ * (A * K⁻¹ * Aᵀ)⁻¹
+
+/-- The fibre covariance `S = K⁻¹ − K⁻¹ Aᵀ (A K⁻¹ Aᵀ)⁻¹ A K⁻¹`: for a Gaussian with precision `K`,
+the covariance of `φ` given `A φ` (not derived here; only the matrix identities below are used). -/
+def fibreCov (K : Matrix n n ℝ) (A : Matrix m n ℝ) : Matrix n n ℝ :=
+  K⁻¹ - K⁻¹ * Aᵀ * (A * K⁻¹ * Aᵀ)⁻¹ * A * K⁻¹
+
+/-- The Gaussian coefficient `κ_J(y, φ) = −(K J η)·(φ − J_* y)` for the lift `J` and the coarse
+direction `η`, evaluated at the fine field `φ` of the fibre over `y`. -/
+def kappaJ (K : Matrix n n ℝ) (A : Matrix m n ℝ) (J : Matrix n m ℝ) (η y : m → ℝ) (φ : n → ℝ) :
+    ℝ :=
+  -((K *ᵥ (J *ᵥ η)) ⬝ᵥ (φ - condMeanLift K A *ᵥ y))
+
+variable {K : Matrix n n ℝ} {A : Matrix m n ℝ}
+
+/-- `J_*` is a right inverse of `A`. -/
+theorem mul_condMeanLift (hG : IsUnit (A * K⁻¹ * Aᵀ).det) : A * condMeanLift K A = 1 := by
+  unfold condMeanLift
+  rw [← Matrix.mul_assoc, ← Matrix.mul_assoc, Matrix.mul_nonsing_inv _ hG]
+
+theorem mul_condMeanLift_left (hK : IsUnit K.det) :
+    K * condMeanLift K A = Aᵀ * (A * K⁻¹ * Aᵀ)⁻¹ := by
+  unfold condMeanLift
+  rw [Matrix.mul_assoc K⁻¹, ← Matrix.mul_assoc K, Matrix.mul_nonsing_inv _ hK, Matrix.one_mul]
+
+/-- **`K J_* η` is orthogonal to the fibre directions `ker A`.** -/
+theorem condMeanLift_orth (hK : IsUnit K.det) (η : m → ℝ) {ψ : n → ℝ} (hψ : A *ᵥ ψ = 0) :
+    (K *ᵥ (condMeanLift K A *ᵥ η)) ⬝ᵥ ψ = 0 := by
+  rw [Matrix.mulVec_mulVec, mul_condMeanLift_left hK, ← Matrix.mulVec_mulVec,
+    Matrix.mulVec_transpose, ← Matrix.dotProduct_mulVec, hψ, dotProduct_zero]
+
+/-- **The conditional-mean lift is the harmonic lift**: `J_* y` minimises `φ·Kφ` on the fibre
+`{A φ = y}` (`K` symmetric and positive semidefinite). -/
+theorem condMeanLift_minimises (hK : IsUnit K.det) (hKsymm : Kᵀ = K)
+    (hKpsd : ∀ x : n → ℝ, 0 ≤ x ⬝ᵥ (K *ᵥ x)) (hG : IsUnit (A * K⁻¹ * Aᵀ).det) {y : m → ℝ}
+    {φ : n → ℝ} (hφ : A *ᵥ φ = y) :
+    (condMeanLift K A *ᵥ y) ⬝ᵥ (K *ᵥ (condMeanLift K A *ᵥ y)) ≤ φ ⬝ᵥ (K *ᵥ φ) := by
+  set c := condMeanLift K A *ᵥ y
+  set ψ := φ - c
+  have hψ : A *ᵥ ψ = 0 := by
+    simp only [ψ, c, Matrix.mulVec_sub, hφ, Matrix.mulVec_mulVec, mul_condMeanLift hG,
+      Matrix.one_mulVec, sub_self]
+  have h0 : (K *ᵥ c) ⬝ᵥ ψ = 0 := condMeanLift_orth hK y hψ
+  have h0' : c ⬝ᵥ (K *ᵥ ψ) = 0 := by
+    rw [Matrix.dotProduct_mulVec, ← Matrix.mulVec_transpose, hKsymm]
+    exact h0
+  have h0'' : ψ ⬝ᵥ (K *ᵥ c) = 0 := by rw [dotProduct_comm]; exact h0
+  have hφc : φ = c + ψ := by simp [ψ]
+  rw [hφc, Matrix.mulVec_add, dotProduct_add, add_dotProduct, add_dotProduct, h0', h0'']
+  linarith [hKpsd ψ]
+
+/-- **The fibre covariance**: `S K = 1 − J_* A`. -/
+theorem fibreCov_mul (hK : IsUnit K.det) : fibreCov K A * K = 1 - condMeanLift K A * A := by
+  unfold fibreCov condMeanLift
+  rw [Matrix.sub_mul, Matrix.nonsing_inv_mul _ hK, Matrix.mul_assoc _ K⁻¹ K,
+    Matrix.nonsing_inv_mul _ hK, Matrix.mul_one]
+
+/-- The fibre covariance is supported on the fibre directions: `A S = 0`. -/
+theorem mul_fibreCov (hG : IsUnit (A * K⁻¹ * Aᵀ).det) : A * fibreCov K A = 0 := by
+  unfold fibreCov
+  rw [Matrix.mul_sub]
+  have h : A * (K⁻¹ * Aᵀ * (A * K⁻¹ * Aᵀ)⁻¹ * A * K⁻¹) = A * K⁻¹ := by
+    simp only [← Matrix.mul_assoc]
+    rw [Matrix.mul_nonsing_inv _ hG, Matrix.one_mul]
+  rw [h, sub_self]
+
+/-- **The κ-term is a transport along `(J_* − J) η`**: `−S K J = J_* − J` for every right inverse
+`J` of `A`. With the Gaussian integration by parts `E[ξ F] = S E[∇F]` (not formalised here) this
+gives `Cov_y(κ_J, F) = E_y[((J_* − J) η)·∇F]`. -/
+theorem neg_fibreCov_mul_mul (hK : IsUnit K.det) {J : Matrix n m ℝ} (hJ : A * J = 1) :
+    -(fibreCov K A * K * J) = condMeanLift K A - J := by
+  rw [fibreCov_mul hK, Matrix.sub_mul, Matrix.one_mul, Matrix.mul_assoc, hJ, Matrix.mul_one,
+    neg_sub]
+
+/-- **The Gaussian κ_J lemma.** For a positive definite precision `K`, a coarse map `A` with
+`A K⁻¹ Aᵀ` invertible and a right inverse `J` of `A`: the coefficient
+`κ_J(y, φ) = −(K J η)·(φ − J_* y)` vanishes at every point `φ` of every fibre `{A φ = y}` for
+every coarse direction `η` **iff `J` is the conditional-mean lift `J_*`**. -/
+theorem kappaJ_eq_zero_iff (hK : IsUnit K.det) (hKpos : ∀ x : n → ℝ, x ≠ 0 → 0 < x ⬝ᵥ (K *ᵥ x))
+    (hG : IsUnit (A * K⁻¹ * Aᵀ).det) {J : Matrix n m ℝ} (hJ : A * J = 1) :
+    (∀ η y φ, A *ᵥ φ = y → kappaJ K A J η y φ = 0) ↔ J = condMeanLift K A := by
+  constructor
+  · intro h
+    have horth : ∀ η ψ, A *ᵥ ψ = 0 → (K *ᵥ (J *ᵥ η)) ⬝ᵥ ψ = 0 := by
+      intro η ψ hψ
+      have := h η 0 ψ hψ
+      simpa [kappaJ] using this
+    apply Matrix.mulVec_injective
+    funext η
+    by_contra hne
+    have hD : A *ᵥ (J *ᵥ η - condMeanLift K A *ᵥ η) = 0 := by
+      simp only [Matrix.mulVec_sub, Matrix.mulVec_mulVec, hJ, mul_condMeanLift hG,
+        Matrix.one_mulVec, sub_self]
+    have hq : (J *ᵥ η - condMeanLift K A *ᵥ η) ⬝ᵥ (K *ᵥ (J *ᵥ η - condMeanLift K A *ᵥ η)) = 0 := by
+      rw [dotProduct_comm, Matrix.mulVec_sub, sub_dotProduct, horth η _ hD,
+        condMeanLift_orth hK η hD, sub_self]
+    have := hKpos _ (sub_ne_zero.2 hne)
+    linarith
+  · rintro rfl η y φ hφ
+    have hψ : A *ᵥ (φ - condMeanLift K A *ᵥ y) = 0 := by
+      rw [Matrix.mulVec_sub, hφ, Matrix.mulVec_mulVec, mul_condMeanLift hG, Matrix.one_mulVec,
+        sub_self]
+    simp only [kappaJ]
+    rw [condMeanLift_orth hK η hψ, neg_zero]
+
+end Gaussian
+
+/-! ## 8. Examples: every main result applied to concrete data -/
+
+namespace Example
+
+/-- The weights `(1/2, 1/4, 1/4)` on a three-point fibre. -/
+def ν₃ : Fin 3 → ℝ := ![1 / 2, 1 / 4, 1 / 4]
+
+theorem ν₃_pos : ∀ s, 0 < ν₃ s := by
+  intro s
+  fin_cases s <;> simp [ν₃]
+
+theorem ν₃_sum : ∑ s, ν₃ s = 1 := by
+  simp [ν₃, Fin.sum_univ_three]
+  norm_num
+
+/-- **Witness for Prop. 3** on the three-point fibre: `A ι = id`, `P² = P`, `P` self-adjoint,
+`⟨P u, Q u⟩ = 0`, the variance decomposition, `|A u|² ≤ ‖u‖²`, `‖P‖ = 1`; for `u = (1, 2, 3)`:
+`A u = 7/4`, `‖u‖² = 15/4`, `‖Q u‖² = 11/16`. -/
+theorem example_prop3 :
+    avg ν₃ (lift 5) = 5 ∧
+    (∀ u, proj ν₃ (proj ν₃ u) = proj ν₃ u) ∧
+    (∀ u v, ip ν₃ (proj ν₃ u) v = ip ν₃ u (proj ν₃ v)) ∧
+    (∀ u, ip ν₃ (proj ν₃ u) (fluct ν₃ u) = 0) ∧
+    (∀ u, nsq ν₃ u = avg ν₃ u ^ 2 + nsq ν₃ (fluct ν₃ u)) ∧
+    (∀ u, avg ν₃ u ^ 2 ≤ nsq ν₃ u) ∧
+    IsGreatest {r | ∃ u : Fin 3 → ℝ, nsq ν₃ u = 1 ∧ nsq ν₃ (proj ν₃ u) = r} 1 ∧
+    avg ν₃ ![1, 2, 3] = 7 / 4 ∧ nsq ν₃ ![1, 2, 3] = 15 / 4 ∧
+    nsq ν₃ (fluct ν₃ ![1, 2, 3]) = 11 / 16 := by
+  have hν : ∀ s, 0 ≤ ν₃ s := fun s => (ν₃_pos s).le
+  have ha : avg ν₃ ![1, 2, 3] = 7 / 4 := by
+    simp [avg, ν₃, Fin.sum_univ_three]
+    norm_num
+  have hn : nsq ν₃ ![1, 2, 3] = 15 / 4 := by
+    simp [nsq, ip, ν₃, Fin.sum_univ_three]
+    norm_num
+  refine ⟨avg_lift ν₃_sum 5, proj_proj ν₃_sum, ip_proj_left ν₃, ip_proj_fluct ν₃_sum,
+    nsq_eq_sq_avg_add_nsq_fluct ν₃_sum, sq_avg_le_nsq hν ν₃_sum, isGreatest_nsq_proj hν ν₃_sum,
+    ha, hn, ?_⟩
+  have h := nsq_eq_sq_avg_add_nsq_fluct ν₃_sum ![1, 2, 3]
+  rw [ha, hn] at h
+  linarith
+
+/-- Weights `(1/8, 3/8, 1/4, 1/4)` on a four-point total space. -/
+def μ₄ : Fin 4 → ℝ := ![1 / 8, 3 / 8, 1 / 4, 1 / 4]
+
+/-- The fibre map onto a two-point base: fibres `{0, 1}` and `{2, 3}`. -/
+def π₄ : Fin 4 → Fin 2 := ![0, 0, 1, 1]
+
+/-- **Witness for the law of total variance**: the identity holds for every function and centre on
+the four-point total space; both fibres have mass `1/2`. -/
+theorem example_total_variance :
+    (∀ (F : Fin 4 → ℝ) (m : ℝ), ∑ p, μ₄ p * (F p - m) ^ 2 =
+      ∑ y, fibreMass μ₄ π₄ y * fibreVar μ₄ π₄ F y +
+        ∑ y, fibreMass μ₄ π₄ y * (fibreAvg μ₄ π₄ F y - m) ^ 2) ∧
+    fibreMass μ₄ π₄ 0 = 1 / 2 ∧ fibreMass μ₄ π₄ 1 = 1 / 2 := by
+  refine ⟨fun F m => total_variance (fun p => by fin_cases p <;> simp [μ₄]) π₄ F m,
+    ?_, ?_⟩
+  · rw [fibreMass, Finset.sum_filter, Fin.sum_univ_four]
+    simp [μ₄, π₄]
+    norm_num
+  · rw [fibreMass, Finset.sum_filter, Fin.sum_univ_four]
+    simp [μ₄, π₄]
+    norm_num
+
+/-- The weight velocity `(0, 1/8, −1/8)`. -/
+def νb : Fin 3 → ℝ := ![0, 1 / 8, -1 / 8]
+
+/-- A one-parameter family of normalised weights through `ν₃`: `ν_t = ν₃ + t νb`. -/
+def νt (t : ℝ) : Fin 3 → ℝ := ν₃ + t • νb
+
+/-- Profiles `F_t = (1 + t, t², 0)`. -/
+def Ft (t : ℝ) : Fin 3 → ℝ := ![1, 0, 0] + t • ![1, 0, 0] + t ^ 2 • ![0, 1, 0]
+
+/-- The profile at `t = 0`. -/
+def F0 : Fin 3 → ℝ := ![1, 0, 0]
+
+/-- The derivative of the profiles at `t = 0`. -/
+def F1 : Fin 3 → ℝ := ![1, 0, 0]
+
+/-- A generator with `X 1 = 0`: it moves mass from the second point towards the first. -/
+def X₃ : Matrix (Fin 3) (Fin 3) ℝ := !![0, 0, 0; 1, -1, 0; 0, 0, 0]
+
+theorem hasDerivAt_affine {T : Type*} (a b : T → ℝ) (s : T) (t₀ : ℝ) :
+    HasDerivAt (fun t => (a + t • b) s) (b s) t₀ := by
+  have h := ((hasDerivAt_id' t₀).mul_const (b s)).const_add (a s)
+  simp only [one_mul] at h
+  simpa only [Pi.add_apply, Pi.smul_apply, smul_eq_mul] using h
+
+theorem hasDerivAt_quadratic {T : Type*} (a b c : T → ℝ) (s : T) :
+    HasDerivAt (fun t : ℝ => (a + t • b + t ^ 2 • c) s) (b s) 0 := by
+  simp only [Pi.add_apply, Pi.smul_apply, smul_eq_mul]
+  exact ((((hasDerivAt_id' (0 : ℝ)).mul_const (b s)).const_add (a s)).add
+    ((hasDerivAt_pow 2 (0 : ℝ)).mul_const (c s))).congr_deriv (by simp)
+
+theorem νt_zero : νt 0 = ν₃ := by simp [νt]
+
+theorem Ft_zero : Ft 0 = F0 := by simp [Ft, F0]
+
+theorem νt_sum : ∀ t, ∑ s, νt t s = 1 := by
+  intro t
+  simp [νt, ν₃, νb, Fin.sum_univ_three]
+  ring
+
+theorem hνt : ∀ s, HasDerivAt (fun t => νt t s) (νb s) 0 := fun s => hasDerivAt_affine ν₃ νb s 0
+
+theorem hFt : ∀ s, HasDerivAt (fun t => Ft t s) (F1 s) 0 := fun s =>
+  hasDerivAt_quadratic ![1, 0, 0] ![1, 0, 0] ![0, 1, 0] s
+
+theorem X₃_one : X₃ *ᵥ lift 1 = 0 := by
+  funext s
+  fin_cases s <;> simp [X₃, Matrix.mulVec, dotProduct, Fin.sum_univ_three]
+
+theorem kappa_ex : kappa ν₃ νb X₃ = ![1 / 2, -1 / 2, -1 / 2] := by
+  funext r
+  fin_cases r <;> simp [kappa, ν₃, νb, X₃, Matrix.vecMul, dotProduct, Fin.sum_univ_three] <;>
+    norm_num
+
+/-- **Witness for Prop. 5**: for `ν_t = (1/2, 1/4 + t/8, 1/4 − t/8)`, `F_t = (1 + t, t², 0)` and the
+generator `X₃`, at `t = 0`: the differentiation formula, `A κ = 0`, the commutator identity, the
+value `κ = (1/2, −1/2, −1/2)` (nonzero), and `∂_t (A F) = 1/2`. -/
+theorem example_prop5 :
+    HasDerivAt (fun t => avg (νt t) (Ft t))
+        (avg ν₃ (F1 - X₃ *ᵥ F0) + avg ν₃ (kappa ν₃ νb X₃ * F0)) 0 ∧
+      avg ν₃ (kappa ν₃ νb X₃) = 0 ∧
+      deriv (fun t => avg (νt t) (Ft t)) 0 - avg ν₃ (F1 - X₃ *ᵥ F0) =
+        avg ν₃ (kappa ν₃ νb X₃ * fluct ν₃ F0) ∧
+      kappa ν₃ νb X₃ = ![1 / 2, -1 / 2, -1 / 2] ∧
+      deriv (fun t => avg (νt t) (Ft t)) 0 = 1 / 2 := by
+  have hpos : ∀ s, 0 < νt 0 s := by rw [νt_zero]; exact ν₃_pos
+  have h := differentiation_of_averages X₃ hpos νt_sum X₃_one hνt hFt
+  rw [νt_zero, Ft_zero] at h
+  obtain ⟨hd, hk, hc⟩ := h
+  have hval : avg ν₃ (F1 - X₃ *ᵥ F0) + avg ν₃ (kappa ν₃ νb X₃ * F0) = 1 / 2 := by
+    rw [kappa_ex]
+    simp [avg, ν₃, F1, F0, X₃, Fin.sum_univ_three]
+    norm_num
+  refine ⟨hd, hk, hc, kappa_ex, ?_⟩
+  rw [hd.deriv, hval]
+
+/-- The fibre operator `L₃ = !![1, −1/2, −1/2; −1, 2, −1; −1, −1, 2]`: symmetric for `ν₃`, kills
+the constants, spectrum `{0, 2, 3}` (a reversible jump generator with detailed balance for
+`ν₃`). -/
+def L₃ : Matrix (Fin 3) (Fin 3) ℝ := !![1, -1 / 2, -1 / 2; -1, 2, -1; -1, -1, 2]
+
+theorem L₃_symm : ∀ s r, ν₃ s * L₃ s r = ν₃ r * L₃ r s := by
+  intro s r
+  fin_cases s <;> fin_cases r <;> simp [ν₃, L₃] <;> norm_num
+
+theorem L₃_one : L₃ *ᵥ lift 1 = 0 := by
+  funext s
+  fin_cases s <;> simp [L₃, Matrix.mulVec, dotProduct, Fin.sum_univ_three] <;> norm_num
+
+theorem L₃_row (v : Fin 3 → ℝ) :
+    (L₃ *ᵥ v) 0 = v 0 - v 1 / 2 - v 2 / 2 ∧ (L₃ *ᵥ v) 1 = -v 0 + 2 * v 1 - v 2 ∧
+      (L₃ *ᵥ v) 2 = -v 0 - v 1 + 2 * v 2 := by
+  refine ⟨?_, ?_, ?_⟩ <;> simp [L₃, Matrix.mulVec, dotProduct, Fin.sum_univ_three] <;> ring
+
+theorem L₃_ker : ∀ v : Fin 3 → ℝ, L₃ *ᵥ v = 0 → ∃ c, v = lift c := by
+  intro v hv
+  obtain ⟨r0, r1, r2⟩ := L₃_row v
+  have e0 := congrFun hv 0
+  have e1 := congrFun hv 1
+  have e2 := congrFun hv 2
+  rw [r0] at e0
+  rw [r1] at e1
+  rw [r2] at e2
+  simp only [Pi.zero_apply] at e0 e1 e2
+  refine ⟨v 0, ?_⟩
+  funext s
+  fin_cases s <;> simp <;> linarith
+
+theorem L₃_gap : ∀ (μ : ℝ) (v : Fin 3 → ℝ), v ≠ 0 → L₃ *ᵥ v = μ • v → μ ≠ 0 → 2 ≤ μ := by
+  intro μ v hv hLv hμ
+  obtain ⟨r0, r1, r2⟩ := L₃_row v
+  have e0 := congrFun hLv 0
+  have e1 := congrFun hLv 1
+  have e2 := congrFun hLv 2
+  rw [r0] at e0
+  rw [r1] at e1
+  rw [r2] at e2
+  simp only [Pi.smul_apply, smul_eq_mul] at e0 e1 e2
+  by_contra hlt'
+  have hlt : μ < 2 := not_le.1 hlt'
+  have h12 : v 1 = v 2 := by
+    have h : (3 - μ) * (v 1 - v 2) = 0 := by linear_combination e1 - e2
+    have h3 : 3 - μ ≠ 0 := by intro h3; linarith
+    have := (mul_eq_zero.1 h).resolve_left h3
+    linarith
+  have h01 : v 0 + v 1 = 0 := by
+    have h : μ * (v 0 + v 1) = 0 := by linear_combination -(e0 + e1) + (3 / 2) * h12
+    exact (mul_eq_zero.1 h).resolve_left hμ
+  have hv1 : v 1 = 0 := by
+    have h : (2 - μ) * v 1 = 0 := by linear_combination e1 + h01 - h12
+    have h2 : 2 - μ ≠ 0 := by intro h2; linarith
+    exact (mul_eq_zero.1 h).resolve_left h2
+  apply hv
+  funext s
+  fin_cases s <;> simp <;> linarith
+
+/-- **Witness for Prop. 7** (and the nonnegativity part of Prop. 6): for the operator `L₃` with
+`λ₁ = 2` on the three-point fibre, `‖u − A u‖² ≤ ½ ⟨u, L₃ u⟩` for every `u`, `⟨u, L₃ u⟩ ≥ 0`,
+and the constant `½` is attained at `u = (1, −1, −1)` (`‖Q u‖² = 1`, `⟨u, L₃ u⟩ = 2`). -/
+theorem example_poincare :
+    (∀ u, nsq ν₃ (fluct ν₃ u) ≤ 2⁻¹ * ip ν₃ u (L₃ *ᵥ u)) ∧
+    (∀ u, 0 ≤ ip ν₃ u (L₃ *ᵥ u)) ∧
+    nsq ν₃ (fluct ν₃ ![1, -1, -1]) = 1 ∧ ip ν₃ ![1, -1, -1] (L₃ *ᵥ ![1, -1, -1]) = 2 := by
+  refine ⟨poincare ν₃_pos ν₃_sum L₃_symm L₃_one L₃_ker (by norm_num) L₃_gap,
+    ip_mulVec_nonneg ν₃_pos ν₃_sum L₃_symm L₃_one L₃_ker (by norm_num) L₃_gap, ?_, ?_⟩
+  · have ha : avg ν₃ ![1, -1, -1] = 0 := by
+      simp [avg, ν₃, Fin.sum_univ_three]
+      norm_num
+    simp only [fluct, proj, ha]
+    simp [nsq, ip, lift, ν₃, Fin.sum_univ_three]
+    norm_num
+  · simp [ip, L₃, ν₃, Matrix.mulVec, dotProduct, Fin.sum_univ_three]
+    norm_num
+
+/-- The eigenvectors `1`, `(1, −1, −1)`, `(0, √2, −√2)` of `L₃`, orthonormal for `ν₃`. -/
+def e₃ : Fin 3 → Fin 3 → ℝ := ![![1, 1, 1], ![1, -1, -1], ![0, Real.sqrt 2, -Real.sqrt 2]]
+
+/-- The eigenvalues `0 ≤ 2 ≤ 3`. -/
+def lam₃ : Fin 3 → ℝ := ![0, 2, 3]
+
+theorem sqrt2_mul_self : Real.sqrt 2 * Real.sqrt 2 = 2 := Real.mul_self_sqrt (by norm_num)
+
+theorem e₃_orthonormal : ∀ i j, ip ν₃ (e₃ i) (e₃ j) = if i = j then 1 else 0 := by
+  intro i j
+  fin_cases i <;> fin_cases j <;> simp [ip, ν₃, e₃, Fin.sum_univ_three] <;>
+    first
+    | ring1
+    | linear_combination (1 / 2 : ℝ) * sqrt2_mul_self
+
+theorem e₃_eigen : ∀ i, L₃ *ᵥ e₃ i = lam₃ i • e₃ i := by
+  intro i
+  funext s
+  fin_cases i <;> fin_cases s <;>
+    simp [L₃, e₃, lam₃, Matrix.mulVec, dotProduct, Fin.sum_univ_three] <;> ring1
+
+theorem e₃_expand : ∀ u : Fin 3 → ℝ, u = ∑ i, ip ν₃ (e₃ i) u • e₃ i := by
+  intro u
+  have c0 : ip ν₃ (e₃ 0) u = u 0 / 2 + u 1 / 4 + u 2 / 4 := by
+    simp [ip, ν₃, e₃, Fin.sum_univ_three]
+    ring
+  have c1 : ip ν₃ (e₃ 1) u = u 0 / 2 - u 1 / 4 - u 2 / 4 := by
+    simp [ip, ν₃, e₃, Fin.sum_univ_three]
+    ring
+  have c2 : ip ν₃ (e₃ 2) u = Real.sqrt 2 / 4 * (u 1 - u 2) := by
+    simp [ip, ν₃, e₃, Fin.sum_univ_three]
+    ring
+  funext s
+  simp only [Finset.sum_apply, Pi.smul_apply, smul_eq_mul, Fin.sum_univ_three, c0, c1, c2]
+  fin_cases s <;> simp [e₃] <;>
+    first
+    | ring1
+    | linear_combination (-(u 1 - u 2) / 4) * sqrt2_mul_self
+    | linear_combination ((u 1 - u 2) / 4) * sqrt2_mul_self
+
+/-- The explicit `ν₃`-orthonormal eigenbasis of `L₃`, with increasing eigenvalues `0, 2, 3`. -/
+def b₃ : EigenBasis ν₃ L₃ (Fin 3) := ⟨e₃, lam₃, e₃_orthonormal, e₃_eigen, e₃_expand⟩
+
+theorem lam₃_mono : Monotone b₃.val := by
+  intro i j hij
+  fin_cases i <;> fin_cases j <;> simp_all [b₃, lam₃]
+  norm_num
+
+/-- **Witness for the eigenbasis form of Prop. 7** with the explicit basis `b₃`: its zero mode is
+the constant `1` and its nonzero eigenvalues `2, 3` are at least `2`. -/
+theorem example_poincare_eigenBasis :
+    ∀ u, nsq ν₃ (fluct ν₃ u) ≤ 2⁻¹ * ip ν₃ u (L₃ *ᵥ u) := by
+  refine poincare_of_eigenBasis b₃ ν₃_sum L₃_one (fun i hi => ⟨1, ?_⟩) (by norm_num)
+    (fun i hi => ?_)
+  · fin_cases i
+    · funext s
+      fin_cases s <;> simp [b₃, e₃]
+    · simp [b₃, lam₃] at hi
+    · simp [b₃, lam₃] at hi
+  · fin_cases i
+    · simp [b₃, lam₃] at hi
+    · simp [b₃, lam₃]
+    · simp [b₃, lam₃]
+      norm_num
+
+/-- The lowest mode of `b₃` is the constant `1`, so the truncation to it is the averaging
+projection: `P₀ = P`. -/
+theorem trunc_b₃_zero (u : Fin 3 → ℝ) : b₃.trunc (univ.filter (fun i => i < 1)) u = proj ν₃ u := by
+  have hT : univ.filter (fun i : Fin 3 => i < 1) = {0} := by
+    ext i
+    fin_cases i <;> simp
+  rw [EigenBasis.trunc, hT, Finset.sum_singleton]
+  funext s
+  fin_cases s <;> simp [b₃, e₃, proj, avg, ip, ν₃, Fin.sum_univ_three]
+
+/-- **Witness for Prop. 8** on the three-point fibre with the eigenbasis `b₃` of `L₃`:
+`L^{2/2} = L₃`, `L⁰ = 1`, the lowest truncation is `P₀ = P`, and for every `s ≥ 0`,
+`‖(I − P₀) u‖² ≤ 2^{−s} ‖L^{s/2} u‖²` and `‖(I − P₁) u‖² ≤ 3^{−s} ‖L^{s/2} u‖²`. -/
+theorem example_truncation :
+    (∀ u, b₃.fpow 2 u = L₃ *ᵥ u) ∧ (∀ u, b₃.fpow 0 u = u) ∧
+    (∀ u, b₃.trunc (univ.filter (fun i => i < 1)) u = proj ν₃ u) ∧
+    (∀ s : ℝ, 0 ≤ s → ∀ u, nsq ν₃ (u - b₃.trunc (univ.filter (fun i => i < 1)) u) ≤
+      2 ^ (-s) * nsq ν₃ (b₃.fpow s u)) ∧
+    (∀ s : ℝ, 0 ≤ s → ∀ u, nsq ν₃ (u - b₃.trunc (univ.filter (fun i => i < 2)) u) ≤
+      3 ^ (-s) * nsq ν₃ (b₃.fpow s u)) := by
+  have h1 : b₃.val 1 = 2 := by simp [b₃, lam₃]
+  have h2 : b₃.val 2 = 3 := by simp [b₃, lam₃]
+  refine ⟨b₃.fpow_two, b₃.fpow_zero, trunc_b₃_zero, fun s hs u => ?_, fun s hs u => ?_⟩
+  · have h := b₃.truncation_sorted lam₃_mono 1 (by rw [h1]; norm_num) hs u
+    rwa [h1] at h
+  · have h := b₃.truncation_sorted lam₃_mono 2 (by rw [h2]; norm_num) hs u
+    rwa [h2] at h
+
+/-- **Witness for (9.3)–(9.4)**: for the family of `example_prop5` and the operator `L₃`
+(`λ₁ = 2`) at `t = 0`, both commutator bounds hold. -/
+theorem example_commutator :
+    |deriv (fun t => avg (νt t) (Ft t)) 0 - avg ν₃ (F1 - X₃ *ᵥ F0)| ≤
+        Real.sqrt (nsq ν₃ (kappa ν₃ νb X₃)) * Real.sqrt (nsq ν₃ (fluct ν₃ F0)) ∧
+      |deriv (fun t => avg (νt t) (Ft t)) 0 - avg ν₃ (F1 - X₃ *ᵥ F0)| ≤
+        Real.sqrt (nsq ν₃ (kappa ν₃ νb X₃)) *
+          ((Real.sqrt 2)⁻¹ * Real.sqrt (ip ν₃ F0 (L₃ *ᵥ F0))) := by
+  have hpos : ∀ s, 0 < νt 0 s := by rw [νt_zero]; exact ν₃_pos
+  have hsymm : ∀ s r, νt 0 s * L₃ s r = νt 0 r * L₃ r s := by rw [νt_zero]; exact L₃_symm
+  have h3 := commutator_bound X₃ hpos νt_sum X₃_one hνt hFt
+  have h4 := commutator_bound_energy X₃ hpos νt_sum X₃_one hνt hFt hsymm L₃_one L₃_ker
+    (by norm_num : (0 : ℝ) < 2) L₃_gap
+  rw [νt_zero, Ft_zero] at h3 h4
+  exact ⟨h3, h4⟩
+
+/-- Potentials `V_t = (0, 1, 2) + t (1, 0, −1)` for Gibbs weights on the three-point fibre. -/
+def Vt (t : ℝ) : Fin 3 → ℝ := ![0, 1, 2] + t • ![1, 0, -1]
+
+/-- **Witness for the Gibbs form of Prop. 5**: the Gibbs weights of `V_0` are positive and
+normalised, `∂_t (A F) = A F' − ⟨Q V', F⟩` at `t = 0` for the Gibbs weights of `V_t` and the
+profiles `F_t`, and `κ = −(V' − A V')` for these weights. -/
+theorem example_gibbs :
+    (∀ s, 0 < gibbs (Vt 0) s) ∧ ∑ s, gibbs (Vt 0) s = 1 ∧
+    HasDerivAt (fun t => avg (gibbs (Vt t)) (Ft t))
+        (avg (gibbs (Vt 0)) F1 - ip (gibbs (Vt 0)) (fluct (gibbs (Vt 0)) ![1, 0, -1]) (Ft 0)) 0 ∧
+      kappa (gibbs (Vt 0))
+          (fun s => -(gibbs (Vt 0) s * (![1, 0, -1] s - avg (gibbs (Vt 0)) ![1, 0, -1]))) 0 =
+        fun s => -(![1, 0, -1] s - avg (gibbs (Vt 0)) ![1, 0, -1]) :=
+  ⟨gibbs_pos (Vt 0), gibbs_sum (Vt 0), hasDerivAt_avg_gibbs (fun s => hasDerivAt_affine ![0, 1, 2] ![1, 0, -1] s 0) hFt,
+    kappa_gibbs (Vt 0) ![1, 0, -1]⟩
+
+/-- The precision `K₂ = diag(1, 2)` on two fine sites. -/
+def K₂ : Matrix (Fin 2) (Fin 2) ℝ := Matrix.diagonal ![1, 2]
+
+/-- The coarse map `A₂ φ = (φ₀ + φ₁)/2`. -/
+def A₂ : Matrix (Fin 1) (Fin 2) ℝ := !![1 / 2, 1 / 2]
+
+/-- A right inverse of `A₂` that is not the conditional-mean lift: `J₂ y = (y, y)`. -/
+def J₂ : Matrix (Fin 2) (Fin 1) ℝ := !![1; 1]
+
+theorem K₂_inv : K₂⁻¹ = Matrix.diagonal ![1, 1 / 2] := by
+  apply Matrix.inv_eq_left_inv
+  rw [K₂, Matrix.diagonal_mul_diagonal, ← Matrix.diagonal_one]
+  congr 1
+  funext i
+  fin_cases i <;> simp
+
+theorem G₂_eq : A₂ * K₂⁻¹ * A₂ᵀ = !![3 / 8] := by
+  rw [K₂_inv]
+  ext i j
+  fin_cases i
+  fin_cases j
+  simp [A₂, Matrix.mul_apply, Fin.sum_univ_two, Matrix.vecMul_diagonal]
+  norm_num
+
+theorem G₂_inv : (A₂ * K₂⁻¹ * A₂ᵀ)⁻¹ = !![8 / 3] := by
+  rw [G₂_eq]
+  apply Matrix.inv_eq_left_inv
+  ext i j
+  fin_cases i
+  fin_cases j
+  simp
+
+theorem K₂_det : IsUnit K₂.det := by
+  rw [isUnit_iff_ne_zero, K₂, Matrix.det_diagonal, Fin.prod_univ_two]
+  norm_num
+
+theorem G₂_det : IsUnit (A₂ * K₂⁻¹ * A₂ᵀ).det := by
+  rw [G₂_eq, isUnit_iff_ne_zero, Matrix.det_fin_one_of]
+  norm_num
+
+theorem K₂_quad (x : Fin 2 → ℝ) : x ⬝ᵥ (K₂ *ᵥ x) = x 0 ^ 2 + 2 * x 1 ^ 2 := by
+  simp [K₂, dotProduct, Matrix.mulVec_diagonal, Fin.sum_univ_two]
+  ring
+
+theorem K₂_pos : ∀ x : Fin 2 → ℝ, x ≠ 0 → 0 < x ⬝ᵥ (K₂ *ᵥ x) := by
+  intro x hx
+  rw [K₂_quad]
+  by_contra hle'
+  have hle := not_lt.1 hle'
+  have h0 : x 0 ^ 2 = 0 := by linarith [sq_nonneg (x 0), sq_nonneg (x 1)]
+  have h1 : x 1 ^ 2 = 0 := by linarith [sq_nonneg (x 0), sq_nonneg (x 1)]
+  have hx0 : x 0 = 0 := pow_eq_zero_iff two_ne_zero |>.1 h0
+  have hx1 : x 1 = 0 := pow_eq_zero_iff two_ne_zero |>.1 h1
+  apply hx
+  funext i
+  fin_cases i <;> simp [hx0, hx1]
+
+theorem condMeanLift₂ : condMeanLift K₂ A₂ = !![4 / 3; 2 / 3] := by
+  rw [condMeanLift, G₂_inv, K₂_inv]
+  ext i j
+  fin_cases i <;> fin_cases j <;> simp [A₂, Matrix.mul_apply, Fin.sum_univ_two] <;> norm_num
+
+theorem A₂_J₂ : A₂ * J₂ = 1 := by
+  ext i j
+  fin_cases i
+  fin_cases j
+  simp [A₂, J₂, Matrix.mul_apply, Fin.sum_univ_two]
+  norm_num
+
+/-- **Witness for the Gaussian κ_J lemma** with `K = diag(1, 2)`, `A φ = (φ₀ + φ₁)/2`: the
+conditional-mean lift is `J_* = (4/3, 2/3)ᵀ`; `A J₂ = A J_* = 1`; `−S K J₂ = J_* − J₂`; the
+coefficient of `J₂ = (1, 1)ᵀ` is `κ_{J₂} = 1 ≠ 0` at `φ = (1, −1)` over `y = 0`, so it does not
+vanish on every fibre; the coefficient of `J_*` vanishes on every fibre. -/
+theorem example_kappaJ :
+    condMeanLift K₂ A₂ = !![4 / 3; 2 / 3] ∧ A₂ * J₂ = 1 ∧ A₂ * condMeanLift K₂ A₂ = 1 ∧
+      -(fibreCov K₂ A₂ * K₂ * J₂) = condMeanLift K₂ A₂ - J₂ ∧ A₂ * fibreCov K₂ A₂ = 0 ∧
+      kappaJ K₂ A₂ J₂ ![1] 0 ![1, -1] = 1 ∧
+      ¬ (∀ η y φ, A₂ *ᵥ φ = y → kappaJ K₂ A₂ J₂ η y φ = 0) ∧
+      (∀ η y φ, A₂ *ᵥ φ = y → kappaJ K₂ A₂ (condMeanLift K₂ A₂) η y φ = 0) := by
+  have hne : J₂ ≠ condMeanLift K₂ A₂ := by
+    rw [condMeanLift₂]
+    intro h
+    have := congrFun (congrFun h 0) 0
+    simp [J₂] at this
+    norm_num at this
+  have hκ : kappaJ K₂ A₂ J₂ ![1] 0 ![1, -1] = 1 := by
+    simp [kappaJ, K₂, J₂, Matrix.mulVec, dotProduct, Fin.sum_univ_two, Matrix.diagonal]
+    norm_num
+  refine ⟨condMeanLift₂, A₂_J₂, mul_condMeanLift G₂_det, neg_fibreCov_mul_mul K₂_det A₂_J₂,
+    mul_fibreCov G₂_det, hκ, ?_, ?_⟩
+  · rw [kappaJ_eq_zero_iff K₂_det K₂_pos G₂_det A₂_J₂]
+    exact hne
+  · exact (kappaJ_eq_zero_iff K₂_det K₂_pos G₂_det (mul_condMeanLift G₂_det)).2 rfl
+
+/-- Two points `(1, −1)` and `(−1, 1)` of the fibre over `y = 0`. -/
+def φ₂ : Fin 2 → Fin 2 → ℝ := ![![1, -1], ![-1, 1]]
+
+/-- **Witness for the finite-sample κ_J formula and for the harmonic-lift property**: the Gibbs
+weights of the two-point sample moved along `J₂ (1)` are differentiable with
+`κ s = −(K₂ J₂ (1))·(φ₂ s − E φ₂)`, and the `K₂`-energy of `J_* (1)` is at most that of `J₂ (1)`. -/
+theorem example_kappaJ_sample :
+    (∃ ν' : Fin 2 → ℝ,
+      (∀ s, HasDerivAt (fun t => gibbs (quadAction K₂ φ₂ (J₂ *ᵥ ![1]) t) s) (ν' s) 0) ∧
+      kappa (gibbs (quadAction K₂ φ₂ (J₂ *ᵥ ![1]) 0)) ν' 0 =
+        fun s => -((K₂ *ᵥ (J₂ *ᵥ ![1])) ⬝ᵥ
+          (φ₂ s - ∑ r, gibbs (quadAction K₂ φ₂ (J₂ *ᵥ ![1]) 0) r • φ₂ r))) ∧
+    (condMeanLift K₂ A₂ *ᵥ ![1]) ⬝ᵥ (K₂ *ᵥ (condMeanLift K₂ A₂ *ᵥ ![1])) ≤
+      (J₂ *ᵥ ![1]) ⬝ᵥ (K₂ *ᵥ (J₂ *ᵥ ![1])) := by
+  have hKsymm : K₂ᵀ = K₂ := Matrix.diagonal_transpose _
+  refine ⟨kappa_quadAction_sample K₂ hKsymm φ₂ (J₂ *ᵥ ![1]), ?_⟩
+  refine condMeanLift_minimises K₂_det hKsymm (fun x => ?_) G₂_det ?_
+  · rw [K₂_quad]
+    positivity
+  · rw [Matrix.mulVec_mulVec, A₂_J₂, Matrix.one_mulVec]
+
+end Example
+
+end
+
+end FiniteFibre
